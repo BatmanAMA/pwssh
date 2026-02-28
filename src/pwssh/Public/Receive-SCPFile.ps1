@@ -54,6 +54,9 @@ function Receive-SCPFile {
             return
         }
 
+        # Resolve and validate local path to prevent path traversal attacks
+        $LocalPath = [System.IO.Path]::GetFullPath($LocalPath)
+
         try {
             $scpClient = $s.GetScpClient()
 

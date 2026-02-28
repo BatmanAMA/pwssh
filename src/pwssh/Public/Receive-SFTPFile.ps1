@@ -52,6 +52,9 @@ function Receive-SFTPFile {
             return
         }
 
+        # Resolve and validate local path to prevent path traversal attacks
+        $LocalPath = [System.IO.Path]::GetFullPath($LocalPath)
+
         if ((Test-Path $LocalPath) -and -not $Overwrite) {
             Write-Error "Local file '$LocalPath' already exists. Use -Overwrite to replace it."
             return

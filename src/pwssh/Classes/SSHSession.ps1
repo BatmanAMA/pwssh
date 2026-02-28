@@ -11,6 +11,7 @@ class SSHSessionInfo {
     [object]$InternalSession     # Renci.SshNet.SshClient (hidden from default display)
     [object]$InternalSftpClient  # Cached Renci.SshNet.SftpClient
     [object]$InternalScpClient   # Cached Renci.SshNet.ScpClient
+    [string]$VerifiedHostKeyFingerprint  # SHA256 fingerprint verified during initial connection
 
     SSHSessionInfo() {
         $this.Port = 22
@@ -30,6 +31,15 @@ class SSHSessionInfo {
             try { $this.InternalSftpClient.Dispose() } catch { }
         }
         $this.InternalSftpClient = [Renci.SshNet.SftpClient]::new($this.InternalSession.ConnectionInfo)
+        # Verify host key on the SFTP sub-connection matches the verified SSH session key
+        $verifiedFp = $this.VerifiedHostKeyFingerprint
+        if ($verifiedFp) {
+            $this.InternalSftpClient.add_HostKeyReceived({
+                param($sender, $e)
+                $fp = ConvertTo-SSHFingerprint -KeyData $e.HostKey -Algorithm SHA256
+                $e.CanTrust = ($fp -eq $verifiedFp)
+            })
+        }
         $this.InternalSftpClient.Connect()
         return $this.InternalSftpClient
     }
@@ -42,6 +52,15 @@ class SSHSessionInfo {
             try { $this.InternalScpClient.Dispose() } catch { }
         }
         $this.InternalScpClient = [Renci.SshNet.ScpClient]::new($this.InternalSession.ConnectionInfo)
+        # Verify host key on the SCP sub-connection matches the verified SSH session key
+        $verifiedFp = $this.VerifiedHostKeyFingerprint
+        if ($verifiedFp) {
+            $this.InternalScpClient.add_HostKeyReceived({
+                param($sender, $e)
+                $fp = ConvertTo-SSHFingerprint -KeyData $e.HostKey -Algorithm SHA256
+                $e.CanTrust = ($fp -eq $verifiedFp)
+            })
+        }
         $this.InternalScpClient.Connect()
         return $this.InternalScpClient
     }

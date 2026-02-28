@@ -62,7 +62,9 @@ function Invoke-SSHCommand {
                 continue
             }
 
-            Write-Verbose "Executing on session $($s.SessionId): $Command"
+            # Redact command text in verbose output to prevent credential leakage
+            $safeCmd = if ($Command.Length -gt 60) { $Command.Substring(0, 60) + '...[REDACTED]' } else { $Command }
+            Write-Verbose "Executing on session $($s.SessionId): $safeCmd"
             $startTime = [datetime]::UtcNow
 
             try {

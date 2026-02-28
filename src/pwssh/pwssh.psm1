@@ -3,9 +3,21 @@
 # psm1 files run in the module scope, but be explicit with try/catch below.
 $script:ErrorActionPreference = 'Stop'
 
-# Load SSH.NET assembly
+# Load SSH.NET assembly with integrity verification
 $libPath = Join-Path $PSScriptRoot 'lib' 'Renci.SshNet.dll'
+$libHashPath = Join-Path $PSScriptRoot 'lib' 'Renci.SshNet.dll.sha256'
 if (Test-Path $libPath) {
+    # Verify DLL integrity if hash file is present
+    if (Test-Path $libHashPath) {
+        $expectedHash = ([System.IO.File]::ReadAllText($libHashPath)).Trim().ToUpperInvariant()
+        $actualHash = (Get-FileHash -Path $libPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        if ($expectedHash -ne $actualHash) {
+            throw "pwssh: Renci.SshNet.dll integrity check FAILED. Expected SHA256: $expectedHash, Got: $actualHash. The assembly may have been tampered with."
+        }
+    }
+    else {
+        Write-Warning "pwssh: No integrity hash file found at $libHashPath. DLL loaded without verification. Run build.ps1 to generate the hash file."
+    }
     try {
         Add-Type -Path $libPath -ErrorAction Stop
     }

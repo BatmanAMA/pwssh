@@ -61,7 +61,11 @@ function Install-SshNetPackage {
             $dllPath = Join-Path $extractPath 'lib' $tfm 'Renci.SshNet.dll'
             if (Test-Path $dllPath) {
                 Copy-Item $dllPath -Destination $LibPath -Force
-                Write-Host "  Installed Renci.SshNet.dll ($tfm)" -ForegroundColor Green
+                # Generate integrity hash file for runtime verification
+                $installedDll = Join-Path $LibPath 'Renci.SshNet.dll'
+                $hash = (Get-FileHash -Path $installedDll -Algorithm SHA256).Hash.ToUpperInvariant()
+                [System.IO.File]::WriteAllText((Join-Path $LibPath 'Renci.SshNet.dll.sha256'), $hash)
+                Write-Host "  Installed Renci.SshNet.dll ($tfm) - SHA256: $hash" -ForegroundColor Green
                 return
             }
         }

@@ -56,7 +56,21 @@ function Add-SSHKnownHost {
         $line = "{0} {1} {2}" -f $hostEntry, $KeyType, $KeyData
 
         if ($PSCmdlet.ShouldProcess($filePath, "Add known host entry for $hostEntry")) {
-            [System.IO.File]::AppendAllText($filePath, "$line`n")
+            # Use exclusive file lock to prevent race conditions with concurrent sessions
+            $fs = $null
+            try {
+                $fs = [System.IO.FileStream]::new(
+                    $filePath,
+                    [System.IO.FileMode]::Append,
+                    [System.IO.FileAccess]::Write,
+                    [System.IO.FileShare]::None
+                )
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes("$line`n")
+                $fs.Write($bytes, 0, $bytes.Length)
+            }
+            finally {
+                if ($fs) { $fs.Dispose() }
+            }
             Write-Verbose "Added $hostEntry to $filePath"
         }
     }

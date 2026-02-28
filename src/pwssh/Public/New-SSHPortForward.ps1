@@ -74,6 +74,13 @@ function New-SSHPortForward {
             return
         }
 
+        # Warn when binding to non-loopback addresses (exposes tunnel to the network)
+        $loopbackAddrs = @('localhost', '127.0.0.1', '::1', '[::1]')
+        if ($BoundHost -notin $loopbackAddrs) {
+            Write-Warning ("Port forward is binding to non-loopback address '$BoundHost'. " +
+                "This exposes the tunnel to the network. Use 'localhost' or '127.0.0.1' to restrict access to the local machine.")
+        }
+
         try {
             $fwdPort = switch ($Type) {
                 'Local' {

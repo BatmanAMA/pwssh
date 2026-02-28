@@ -113,10 +113,28 @@ function New-SSHKeyPair {
                 $pubContent = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPublicKeyLine($keyData)
                 [System.IO.File]::WriteAllText($pubPath, "$pubContent`n")
 
-                # Set permissions (Unix)
+                # Set permissions
                 if ($IsLinux -or $IsMacOS) {
                     & chmod 600 $Path 2>$null
                     & chmod 644 $pubPath 2>$null
+                }
+                elseif ($env:OS -eq 'Windows_NT' -or $PSVersionTable.Platform -eq 'Win32NT' -or (-not $IsLinux -and -not $IsMacOS)) {
+                    # On Windows, restrict private key ACL to current user only
+                    try {
+                        $acl = Get-Acl -Path $Path
+                        $acl.SetAccessRuleProtection($true, $false)
+                        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+                        $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+                            $currentUser,
+                            [System.Security.AccessControl.FileSystemRights]::FullControl,
+                            [System.Security.AccessControl.AccessControlType]::Allow
+                        )
+                        $acl.SetAccessRule($rule)
+                        Set-Acl -Path $Path -AclObject $acl
+                    }
+                    catch {
+                        Write-Warning "Could not restrict private key file permissions on Windows: $_"
+                    }
                 }
 
                 # Calculate fingerprint

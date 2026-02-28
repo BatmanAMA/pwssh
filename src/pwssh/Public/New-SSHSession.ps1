@@ -94,7 +94,11 @@ function New-SSHSession {
             $user = if ($UserName) { $UserName }
                     elseif ($parsed.UserName) { $parsed.UserName }
                     elseif ($Credential) { $Credential.GetNetworkCredential().UserName }
-                    else { if ($env:USER) { $env:USER } elseif ($env:USERNAME) { $env:USERNAME } else { 'root' } }
+                    else {
+                        if ($env:USER) { $env:USER }
+                        elseif ($env:USERNAME) { $env:USERNAME }
+                        else { throw "Cannot determine SSH username. No -UserName, -Credential, or USER/USERNAME environment variable found. Provide an explicit -UserName parameter." }
+                    }
 
             Write-Verbose "Connecting to ${user}@${hostName}:${hostPort}..."
 
@@ -127,8 +131,15 @@ function New-SSHSession {
                 # -AcceptKey overrides StrictHostKeyChecking to 'No'
                 $currentStrictMode = if ($currentAcceptKey) { 'No' } else { $StrictHostKeyChecking }
 
+                # Security warning: host key verification disabled
+                if ($currentStrictMode -eq 'No') {
+                    Write-Warning ("Host key verification is disabled for ${hostName}:${hostPort}. " +
+                        "This connection is vulnerable to man-in-the-middle attacks. " +
+                        "Do not use -AcceptKey or StrictHostKeyChecking=No in production.")
+                }
+
                 # Shared hashtable for cross-scope communication with the event handler
-                $hostKeyResult = @{ CanTrust = $false; Error = $null }
+                $hostKeyResult = @{ CanTrust = $false; Error = $null; Fingerprint = $null }
 
                 # Host key validation — proper TOFU (Trust On First Use)
                 $client.add_HostKeyReceived({
@@ -139,6 +150,7 @@ function New-SSHSession {
                     if ($currentStrictMode -eq 'No') {
                         $e.CanTrust = $true
                         $hostKeyResult.CanTrust = $true
+                        $hostKeyResult.Fingerprint = $fp
                         return
                     }
 
@@ -152,6 +164,7 @@ function New-SSHSession {
                         if ($knownFp -eq $fp) {
                             $e.CanTrust = $true
                             $hostKeyResult.CanTrust = $true
+                            $hostKeyResult.Fingerprint = $fp
                         }
                         else {
                             # KEY MISMATCH — possible MITM attack
@@ -195,6 +208,7 @@ function New-SSHSession {
                         if ($answer -eq 'yes') {
                             $e.CanTrust = $true
                             $hostKeyResult.CanTrust = $true
+                            $hostKeyResult.Fingerprint = $fp
                             # Persist to known_hosts
                             $b64Key = [System.Convert]::ToBase64String($e.HostKey)
                             Add-SSHKnownHost -HostName $currentHost -Port $currentPort -KeyType $e.HostKeyName -KeyData $b64Key
@@ -233,6 +247,7 @@ function New-SSHSession {
                 $session.ServerVersion = $connInfo.ServerVersion
                 $session.ClientVersion = $connInfo.ClientVersion
                 $session.InternalSession = $client
+                $session.VerifiedHostKeyFingerprint = $hostKeyResult.Fingerprint
 
                 $script:SSHSessions[$session.SessionId] = $session
 
