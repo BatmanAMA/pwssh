@@ -39,8 +39,11 @@
         'Get-SSHPortForward'
         'Remove-SSHPortForward'
 
-        # Key management
+        # Key management (pure .NET — no ssh-keygen required)
         'New-SSHKeyPair'
+        'ConvertTo-SSHPublicKey'
+        'Get-SSHKeyFingerprint'
+        'Test-SSHKeyFile'
 
         # Host key management
         'Get-SSHHostKey'

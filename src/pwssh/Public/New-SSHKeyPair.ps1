@@ -1,11 +1,11 @@
 function New-SSHKeyPair {
     <#
     .SYNOPSIS
-        Generates a new SSH key pair.
+        Generates a new SSH key pair using pure .NET cryptography.
     .DESCRIPTION
-        Creates a new SSH private/public key pair using ssh-keygen.
+        Creates a new SSH private/public key pair in OpenSSH format.
         Supports Ed25519, RSA, and ECDSA key types.
-        Works on Windows PowerShell 5.1 and PowerShell 7.x.
+        No external tools (ssh-keygen) required.
     .PARAMETER Path
         Output path for the private key. The public key will be written to Path.pub.
     .PARAMETER KeyType
@@ -22,6 +22,9 @@ function New-SSHKeyPair {
         New-SSHKeyPair -Path ~/.ssh/id_ed25519
     .EXAMPLE
         New-SSHKeyPair -Path ~/.ssh/id_rsa -KeyType RSA -KeySize 4096 -Comment 'deploy key'
+    .EXAMPLE
+        $pass = Read-Host -AsSecureString -Prompt 'Passphrase'
+        New-SSHKeyPair -Path ~/.ssh/id_ed25519 -Passphrase $pass
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -46,6 +49,8 @@ function New-SSHKeyPair {
     )
 
     process {
+        Initialize-SSHCrypto
+
         # Default path
         if (-not $Path) {
             $keyName = switch ($KeyType) {
@@ -75,57 +80,60 @@ function New-SSHKeyPair {
 
         if ($PSCmdlet.ShouldProcess($Path, "Generate $KeyType key")) {
             try {
-                $keygen = Get-Command ssh-keygen -ErrorAction SilentlyContinue
-                if (-not $keygen) {
-                    throw "ssh-keygen not found. Install OpenSSH to generate keys."
+                # Generate key data
+                $keyData = switch ($KeyType) {
+                    'Ed25519' {
+                        [PwSSH.Crypto.OpenSshKeyFormat]::GenerateEd25519($Comment)
+                    }
+                    'RSA' {
+                        $bits = if ($KeySize) { $KeySize } else { 4096 }
+                        [PwSSH.Crypto.OpenSshKeyFormat]::GenerateRsa($bits, $Comment)
+                    }
+                    'ECDSA' {
+                        $bits = if ($KeySize) { $KeySize } else { 256 }
+                        [PwSSH.Crypto.OpenSshKeyFormat]::GenerateEcdsa($bits, $Comment)
+                    }
                 }
 
-                # Build ssh-keygen arguments
-                $sshKeyType = switch ($KeyType) {
-                    'Ed25519' { 'ed25519' }
-                    'RSA'     { 'rsa' }
-                    'ECDSA'   { 'ecdsa' }
-                }
-
-                $passArg = ''
+                # Convert passphrase to plain string
+                $passStr = $null
                 if ($Passphrase) {
                     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Passphrase)
-                    try { $passArg = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
-                    finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+                    try {
+                        $passStr = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+                    }
+                    finally {
+                        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+                    }
                 }
 
-                if (Test-Path $Path) { Remove-Item $Path -Force }
-                if (Test-Path $pubPath) { Remove-Item $pubPath -Force }
+                # Write private key
+                $privContent = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPrivateKeyFile($keyData, $passStr)
+                [System.IO.File]::WriteAllText($Path, $privContent)
 
-                $keygenArgs = @('-t', $sshKeyType, '-f', $Path, '-C', $Comment, '-N', $passArg)
+                # Write public key
+                $pubContent = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPublicKeyLine($keyData)
+                [System.IO.File]::WriteAllText($pubPath, "$pubContent`n")
 
-                # Add key size for RSA and ECDSA
-                if ($KeyType -eq 'RSA') {
-                    $bits = if ($KeySize) { $KeySize } else { 4096 }
-                    $keygenArgs += @('-b', $bits.ToString())
-                }
-                elseif ($KeyType -eq 'ECDSA' -and $KeySize) {
-                    $keygenArgs += @('-b', $KeySize.ToString())
-                }
-
-                $output = & ssh-keygen @keygenArgs 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                    throw "ssh-keygen failed: $output"
-                }
-
-                # Set permissions (Unix-like)
+                # Set permissions (Unix)
                 if ($IsLinux -or $IsMacOS) {
                     & chmod 600 $Path 2>$null
                     & chmod 644 $pubPath 2>$null
                 }
 
+                # Calculate fingerprint
+                $fp = [PwSSH.Crypto.OpenSshKeyFormat]::Fingerprint($keyData.PublicKeyBlob, 'SHA256')
+
                 Write-Verbose "Generated $KeyType key pair at $Path"
 
                 [PSCustomObject]@{
+                    PSTypeName     = 'SSHKeyPairInfo'
                     PrivateKeyPath = $Path
                     PublicKeyPath  = $pubPath
                     KeyType        = $KeyType
+                    Fingerprint    = $fp
                     Comment        = $Comment
+                    Encrypted      = [bool]$Passphrase
                 }
             }
             catch {

@@ -27,13 +27,16 @@ foreach ($class in $classFiles) {
     . (Join-Path $PSScriptRoot 'Classes' "$class.ps1")
 }
 
-# Load private functions
+# Load private functions (excluding CSharp directory which is compiled separately)
 $privatePath = Join-Path $PSScriptRoot 'Private'
 if (Test-Path $privatePath) {
-    Get-ChildItem -Path $privatePath -Filter '*.ps1' -Recurse | ForEach-Object {
+    Get-ChildItem -Path $privatePath -Filter '*.ps1' | ForEach-Object {
         . $_.FullName
     }
 }
+
+# Compile and load the PwSSH.Crypto C# engine
+Initialize-SSHCrypto
 
 # Load public functions
 $publicPath = Join-Path $PSScriptRoot 'Public'
