@@ -47,11 +47,8 @@ function Get-SFTPChildItem {
             return
         }
 
-        $sftpClient = $null
         try {
-            $connInfo = $s.InternalSession.ConnectionInfo
-            $sftpClient = [Renci.SshNet.SftpClient]::new($connInfo)
-            $sftpClient.Connect()
+            $sftpClient = $s.GetSftpClient()
 
             $listDir = {
                 param($dirPath)
@@ -69,12 +66,6 @@ function Get-SFTPChildItem {
         }
         catch {
             Write-Error "SFTP listing failed: $_"
-        }
-        finally {
-            if ($sftpClient) {
-                $sftpClient.Disconnect()
-                $sftpClient.Dispose()
-            }
         }
     }
 }

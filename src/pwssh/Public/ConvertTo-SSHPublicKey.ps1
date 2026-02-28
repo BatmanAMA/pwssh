@@ -37,17 +37,15 @@ function ConvertTo-SSHPublicKey {
             $pemText = [System.IO.File]::ReadAllText($Path)
 
             $passStr = $null
-            if ($Passphrase) {
-                $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Passphrase)
-                try {
-                    $passStr = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+            try {
+                if ($Passphrase) {
+                    $passStr = ConvertFrom-SecureStringPlain -SecureString $Passphrase
                 }
-                finally {
-                    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-                }
+                $keyData = [PwSSH.Crypto.OpenSshKeyFormat]::ParsePrivateKeyFile($pemText, $passStr)
             }
-
-            $keyData = [PwSSH.Crypto.OpenSshKeyFormat]::ParsePrivateKeyFile($pemText, $passStr)
+            finally {
+                $passStr = $null
+            }
             $pubLine = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPublicKeyLine($keyData)
 
             [PSCustomObject]@{

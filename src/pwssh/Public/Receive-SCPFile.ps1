@@ -54,11 +54,8 @@ function Receive-SCPFile {
             return
         }
 
-        $connInfo = $s.InternalSession.ConnectionInfo
-
         try {
-            $scpClient = [Renci.SshNet.ScpClient]::new($connInfo)
-            $scpClient.Connect()
+            $scpClient = $s.GetScpClient()
 
             if ($Recurse) {
                 $dirInfo = [System.IO.DirectoryInfo]::new($LocalPath)
@@ -78,12 +75,6 @@ function Receive-SCPFile {
         }
         catch {
             Write-Error "SCP download failed: $_"
-        }
-        finally {
-            if ($scpClient) {
-                $scpClient.Disconnect()
-                $scpClient.Dispose()
-            }
         }
     }
 }

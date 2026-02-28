@@ -11,14 +11,7 @@ class SSHCommandResult {
 
     SSHCommandResult() { }
 
-    [bool] get_Success() {
-        return $this.ExitCode -eq 0
-    }
-
-    [string[]] get_OutputLines() {
-        if ([string]::IsNullOrEmpty($this.Output)) { return @() }
-        return $this.Output -split "`n"
-    }
+    # Success and OutputLines are provided via pwssh.Types.ps1xml as ScriptProperties
 
     [string] ToString() {
         return $this.Output

@@ -45,16 +45,15 @@ function Get-SSHKeyFingerprint {
             if ($content.StartsWith('-----BEGIN OPENSSH PRIVATE KEY-----')) {
                 # Private key file
                 $passStr = $null
-                if ($Passphrase) {
-                    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Passphrase)
-                    try {
-                        $passStr = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+                try {
+                    if ($Passphrase) {
+                        $passStr = ConvertFrom-SecureStringPlain -SecureString $Passphrase
                     }
-                    finally {
-                        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-                    }
+                    $keyData = [PwSSH.Crypto.OpenSshKeyFormat]::ParsePrivateKeyFile($content, $passStr)
                 }
-                $keyData = [PwSSH.Crypto.OpenSshKeyFormat]::ParsePrivateKeyFile($content, $passStr)
+                finally {
+                    $passStr = $null
+                }
             }
             else {
                 # Public key line

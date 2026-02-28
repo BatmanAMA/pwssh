@@ -1,10 +1,10 @@
 @{
     RootModule        = 'pwssh.psm1'
     ModuleVersion     = '0.1.0'
-    GUID              = 'a3b7c9d1-4e5f-6a7b-8c9d-0e1f2a3b4c5d'
+    GUID              = '23481e80-8ebc-4dd9-a5ae-68ca4deda202'
     Author            = 'BatmanAMA'
     CompanyName       = 'Community'
-    Copyright         = '(c) 2024 BatmanAMA. MIT License.'
+    Copyright         = '(c) 2025 BatmanAMA. MIT License.'
     Description       = 'A pure .NET/PowerShell SSH client module built on SSH.NET. Provides session management, command execution, SCP/SFTP file transfer, port forwarding, and key management.'
 
     PowerShellVersion = '5.1'

@@ -67,25 +67,23 @@ function Test-SSHKeyFile {
                 }
 
                 $passStr = $null
-                if ($Passphrase) {
-                    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Passphrase)
-                    try {
-                        $passStr = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+                try {
+                    if ($Passphrase) {
+                        $passStr = ConvertFrom-SecureStringPlain -SecureString $Passphrase
                     }
-                    finally {
-                        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+
+                    if ($result.Encrypted -and -not $passStr) {
+                        $result.Error = 'Key is encrypted; provide -Passphrase to fully validate'
+                        $result.Valid = $false
+                        $result
+                        return
                     }
-                }
 
-                if ($result.Encrypted -and -not $passStr) {
-                    $result.Error = 'Key is encrypted; provide -Passphrase to fully validate'
-                    $result.Valid = $false
-                    # Still report what we can
-                    $result
-                    return
+                    $keyData = [PwSSH.Crypto.OpenSshKeyFormat]::ParsePrivateKeyFile($content, $passStr)
                 }
-
-                $keyData = [PwSSH.Crypto.OpenSshKeyFormat]::ParsePrivateKeyFile($content, $passStr)
+                finally {
+                    $passStr = $null
+                }
                 $result.KeyType = $keyData.KeyType
                 $result.Valid = $true
             }

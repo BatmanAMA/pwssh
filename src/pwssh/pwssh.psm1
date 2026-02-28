@@ -1,5 +1,7 @@
 #Requires -Version 5.1
-$ErrorActionPreference = 'Stop'
+# Use a local preference for module load — does not leak to caller because
+# psm1 files run in the module scope, but be explicit with try/catch below.
+$script:ErrorActionPreference = 'Stop'
 
 # Load SSH.NET assembly
 $libPath = Join-Path $PSScriptRoot 'lib' 'Renci.SshNet.dll'
@@ -28,9 +30,10 @@ foreach ($class in $classFiles) {
 }
 
 # Load private functions (excluding CSharp directory which is compiled separately)
+# Sort by name for deterministic load order across platforms
 $privatePath = Join-Path $PSScriptRoot 'Private'
 if (Test-Path $privatePath) {
-    Get-ChildItem -Path $privatePath -Filter '*.ps1' | ForEach-Object {
+    Get-ChildItem -Path $privatePath -Filter '*.ps1' | Sort-Object Name | ForEach-Object {
         . $_.FullName
     }
 }
@@ -38,10 +41,10 @@ if (Test-Path $privatePath) {
 # Compile and load the PwSSH.Crypto C# engine
 Initialize-SSHCrypto
 
-# Load public functions
+# Load public functions (sorted for deterministic load order)
 $publicPath = Join-Path $PSScriptRoot 'Public'
 if (Test-Path $publicPath) {
-    Get-ChildItem -Path $publicPath -Filter '*.ps1' -Recurse | ForEach-Object {
+    Get-ChildItem -Path $publicPath -Filter '*.ps1' -Recurse | Sort-Object Name | ForEach-Object {
         . $_.FullName
     }
 }

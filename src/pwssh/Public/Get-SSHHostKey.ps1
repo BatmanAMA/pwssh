@@ -49,27 +49,32 @@ function Get-SSHHostKey {
                 )
                 $connInfo.Timeout = [timespan]::FromSeconds($Timeout)
 
-                $hostKeyInfo = $null
                 $client = [Renci.SshNet.SshClient]::new($connInfo)
+
+                # Use a shared hashtable instead of Set-Variable -Scope (which is
+                # fragile if the callback fires on a different thread or call depth)
+                $captured = @{ Value = $null }
+                $currentHost = $hostName
+                $currentPort = $hostPort
 
                 $client.add_HostKeyReceived({
                     param($sender, $e)
-                    $hostKeyInfo = [SSHHostKey]::new()
-                    $hostKeyInfo.ComputerName  = $hostName
-                    $hostKeyInfo.Port          = $hostPort
-                    $hostKeyInfo.KeyType       = $e.HostKeyName
-                    $hostKeyInfo.KeyLength     = $e.KeyLength
-                    $hostKeyInfo.RawKey        = $e.HostKey
-                    $hostKeyInfo.Fingerprint   = ConvertTo-SSHFingerprint -KeyData $e.HostKey -Algorithm SHA256
-                    $hostKeyInfo.FingerprintMD5 = ConvertTo-SSHFingerprint -KeyData $e.HostKey -Algorithm MD5
+                    $info = [SSHHostKey]::new()
+                    $info.ComputerName   = $currentHost
+                    $info.Port           = $currentPort
+                    $info.KeyType        = $e.HostKeyName
+                    $info.KeyLength      = $e.KeyLength
+                    $info.RawKey         = $e.HostKey
+                    $info.Fingerprint    = ConvertTo-SSHFingerprint -KeyData $e.HostKey -Algorithm SHA256
+                    $info.FingerprintMD5 = ConvertTo-SSHFingerprint -KeyData $e.HostKey -Algorithm MD5
+                    $captured.Value = $info
                     $e.CanTrust = $true
-                    Set-Variable -Name hostKeyInfo -Value $hostKeyInfo -Scope 1
                 })
 
                 try { $client.Connect() } catch { <# Expected to fail auth #> }
                 finally { $client.Dispose() }
 
-                if ($hostKeyInfo) { $hostKeyInfo }
+                if ($captured.Value) { $captured.Value }
                 else { Write-Warning "Could not retrieve host key from ${hostName}:${hostPort}" }
             }
             catch {

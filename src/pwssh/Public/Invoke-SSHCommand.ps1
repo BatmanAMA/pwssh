@@ -11,8 +11,6 @@ function Invoke-SSHCommand {
         SSHSessionInfo object(s) to execute the command on.
     .PARAMETER Command
         The command string to execute on the remote host.
-    .PARAMETER ScriptBlock
-        A script block whose string representation is executed remotely.
     .PARAMETER Timeout
         Command timeout in seconds. Defaults to 0 (no timeout).
     .EXAMPLE
@@ -32,7 +30,6 @@ function Invoke-SSHCommand {
 
         [Parameter(Mandatory, Position = 1, ParameterSetName = 'ById')]
         [Parameter(Mandatory, Position = 1, ParameterSetName = 'BySession')]
-        [Alias('ScriptBlock')]
         [string]$Command,
 
         [Parameter()]

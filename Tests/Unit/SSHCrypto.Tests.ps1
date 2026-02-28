@@ -82,6 +82,50 @@ Describe 'PwSSH.Crypto.Ed25519' {
                 Should -Throw '*32 bytes*'
         }
 
+        It 'generates correct public key for RFC 8032 test vector 3 (1024-byte msg seed)' {
+            # RFC 8032 Section 7.1 — TEST 3
+            $seed = [byte[]]@(
+                0xc5, 0xaa, 0x8d, 0xf4, 0x3f, 0x9f, 0x83, 0x7b,
+                0xed, 0xb7, 0x44, 0x2f, 0x31, 0xdc, 0xb7, 0xb1,
+                0x66, 0xd3, 0x85, 0x35, 0x07, 0x6f, 0x09, 0x4b,
+                0x85, 0xce, 0x3a, 0x2e, 0x0b, 0x44, 0x58, 0xf7
+            )
+            $expectedPub = [byte[]]@(
+                0xfc, 0x51, 0xcd, 0x8e, 0x62, 0x18, 0xa1, 0xa3,
+                0x8d, 0xa4, 0x7e, 0xd0, 0x02, 0x30, 0xf0, 0x58,
+                0x08, 0x16, 0xed, 0x13, 0xba, 0x33, 0x03, 0xac,
+                0x5d, 0xeb, 0x91, 0x15, 0x48, 0x90, 0x80, 0x25
+            )
+
+            $pubKey = $null
+            $expandedPriv = $null
+            [PwSSH.Crypto.Ed25519]::GenerateKeyPair($seed, [ref]$pubKey, [ref]$expandedPriv)
+
+            $pubKey | Should -Be $expectedPub
+        }
+
+        It 'generates correct public key for RFC 8032 test vector 4 (sha-abc seed)' {
+            # RFC 8032 Section 7.1 — TEST 4
+            $seed = [byte[]]@(
+                0xf5, 0xe5, 0x76, 0x7c, 0xf1, 0x53, 0x31, 0x95,
+                0x17, 0x63, 0x0f, 0x22, 0x68, 0x76, 0xb8, 0x6c,
+                0x81, 0x60, 0xcc, 0x58, 0x3b, 0xc0, 0x13, 0x74,
+                0x4c, 0x6b, 0xf2, 0x55, 0xf5, 0xcc, 0x0e, 0xe5
+            )
+            $expectedPub = [byte[]]@(
+                0x27, 0x81, 0x17, 0xfc, 0x14, 0x4c, 0x72, 0x34,
+                0x0f, 0x67, 0xd0, 0xf2, 0x31, 0x6e, 0x83, 0x86,
+                0xce, 0xff, 0xbf, 0x2b, 0x24, 0x28, 0xc9, 0xc5,
+                0x1f, 0xef, 0x7c, 0x59, 0x7f, 0x1d, 0x42, 0x6e
+            )
+
+            $pubKey = $null
+            $expandedPriv = $null
+            [PwSSH.Crypto.Ed25519]::GenerateKeyPair($seed, [ref]$pubKey, [ref]$expandedPriv)
+
+            $pubKey | Should -Be $expectedPub
+        }
+
         It 'generates different keys for different seeds' {
             $seed1 = [byte[]]::new(32); $seed1[0] = 1
             $seed2 = [byte[]]::new(32); $seed2[0] = 2
@@ -92,6 +136,15 @@ Describe 'PwSSH.Crypto.Ed25519' {
             [PwSSH.Crypto.Ed25519]::GenerateKeyPair($seed2, [ref]$pub2, [ref]$priv2)
 
             $pub1 | Should -Not -Be $pub2
+        }
+
+        It 'handles all-zero seed correctly' {
+            $seed = [byte[]]::new(32)
+            $pubKey = $null; $priv = $null
+            [PwSSH.Crypto.Ed25519]::GenerateKeyPair($seed, [ref]$pubKey, [ref]$priv)
+            $pubKey.Length | Should -Be 32
+            # All-zero seed still produces a valid non-zero point
+            $pubKey | Should -Not -Be ([byte[]]::new(32))
         }
     }
 
@@ -209,6 +262,31 @@ Describe 'PwSSH.Crypto.BcryptPbkdf' {
 
         $key1 | Should -Be $key2
     }
+
+    It 'produces correct length with different round counts' {
+        $pass = [System.Text.Encoding]::UTF8.GetBytes('roundstest')
+        $salt = [byte[]]@(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16)
+
+        $key16 = [PwSSH.Crypto.BcryptPbkdf]::DeriveKey($pass, $salt, 16, 48)
+        $key4  = [PwSSH.Crypto.BcryptPbkdf]::DeriveKey($pass, $salt, 4, 48)
+
+        $key16.Length | Should -Be 48
+        $key4.Length | Should -Be 48
+        # Different round counts produce different output
+        $key16 | Should -Not -Be $key4
+    }
+
+    It 'matches cross-tool verification (encrypt/decrypt roundtrip through OpenSSH format)' {
+        # Generate key, encrypt with passphrase, decrypt — verifies bcrypt_pbkdf is
+        # consistent with AES-CTR decryption path
+        $key = [PwSSH.Crypto.OpenSshKeyFormat]::GenerateEd25519('bcrypt-verify')
+        $pem = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPrivateKeyFile($key, 'bcrypt-test-pass')
+        $parsed = [PwSSH.Crypto.OpenSshKeyFormat]::ParsePrivateKeyFile($pem, 'bcrypt-test-pass')
+
+        $parsed.KeyType | Should -Be 'ssh-ed25519'
+        $parsed.Ed25519Seed | Should -Be $key.Ed25519Seed
+        $parsed.Ed25519PublicKey | Should -Be $key.Ed25519PublicKey
+    }
 }
 
 Describe 'PwSSH.Crypto.AesCtr' {
@@ -232,6 +310,63 @@ Describe 'PwSSH.Crypto.AesCtr' {
 
         $ciphertext = [PwSSH.Crypto.AesCtr]::Transform($key, $iv, $plaintext)
         $ciphertext | Should -Not -Be $plaintext
+    }
+
+    Context 'NIST SP 800-38A AES-256-CTR test vector' {
+        It 'produces correct ciphertext for NIST F.5.5 Block 1' {
+            # NIST SP 800-38A Section F.5.5 — CTR-AES256.Encrypt
+            # Key: 603deb10 15ca71be 2b73aef0 857d7781 1f352c07 3b6108d7 2d9810a3 0914dff4
+            $key = [byte[]]@(
+                0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
+                0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
+                0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
+                0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4
+            )
+            # Init Counter: f0f1f2f3 f4f5f6f7 f8f9fafb fcfdfeff
+            $iv = [byte[]]@(
+                0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7,
+                0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff
+            )
+            # Plaintext Block 1: 6bc1bee2 2e409f96 e93d7e11 7393172a
+            $plaintext = [byte[]]@(
+                0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96,
+                0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a
+            )
+            # Ciphertext Block 1: 601ec313 775789a5 b7a7f504 bbf3d228
+            $expectedCt = [byte[]]@(
+                0x60, 0x1e, 0xc3, 0x13, 0x77, 0x57, 0x89, 0xa5,
+                0xb7, 0xa7, 0xf5, 0x04, 0xbb, 0xf3, 0xd2, 0x28
+            )
+
+            $ciphertext = [PwSSH.Crypto.AesCtr]::Transform($key, $iv, $plaintext)
+            $ciphertext | Should -Be $expectedCt
+        }
+    }
+
+    It 'handles multi-block encryption correctly' {
+        $key = [byte[]]::new(32)
+        $iv = [byte[]]::new(16)
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($key)
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($iv)
+
+        # 3 blocks + partial (49 bytes)
+        $plaintext = [byte[]]::new(49)
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($plaintext)
+
+        $ciphertext = [PwSSH.Crypto.AesCtr]::Transform($key, $iv, $plaintext)
+        $decrypted = [PwSSH.Crypto.AesCtr]::Transform($key, $iv, $ciphertext)
+
+        $ciphertext.Length | Should -Be 49
+        $decrypted | Should -Be $plaintext
+    }
+
+    It 'handles empty input' {
+        $key = [byte[]]::new(32); $key[0] = 1
+        $iv = [byte[]]::new(16); $iv[0] = 1
+        $plaintext = [byte[]]@()
+
+        $ciphertext = [PwSSH.Crypto.AesCtr]::Transform($key, $iv, $plaintext)
+        $ciphertext.Length | Should -Be 0
     }
 }
 

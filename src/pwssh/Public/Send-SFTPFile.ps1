@@ -55,11 +55,8 @@ function Send-SFTPFile {
 
         $resolvedPath = Resolve-Path -Path $LocalPath -ErrorAction Stop
 
-        $sftpClient = $null
         try {
-            $connInfo = $s.InternalSession.ConnectionInfo
-            $sftpClient = [Renci.SshNet.SftpClient]::new($connInfo)
-            $sftpClient.Connect()
+            $sftpClient = $s.GetSftpClient()
 
             $stream = [System.IO.File]::OpenRead($resolvedPath.Path)
             try {
@@ -72,12 +69,6 @@ function Send-SFTPFile {
         }
         catch {
             Write-Error "SFTP upload failed: $_"
-        }
-        finally {
-            if ($sftpClient) {
-                $sftpClient.Disconnect()
-                $sftpClient.Dispose()
-            }
         }
     }
 }

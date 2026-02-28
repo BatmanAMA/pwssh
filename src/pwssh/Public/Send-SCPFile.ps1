@@ -55,11 +55,9 @@ function Send-SCPFile {
         }
 
         $resolvedPath = Resolve-Path -Path $LocalPath -ErrorAction Stop
-        $connInfo = $s.InternalSession.ConnectionInfo
 
         try {
-            $scpClient = [Renci.SshNet.ScpClient]::new($connInfo)
-            $scpClient.Connect()
+            $scpClient = $s.GetScpClient()
 
             if (Test-Path $resolvedPath -PathType Container) {
                 if (-not $Recurse) {
@@ -78,12 +76,6 @@ function Send-SCPFile {
         }
         catch {
             Write-Error "SCP upload failed: $_"
-        }
-        finally {
-            if ($scpClient) {
-                $scpClient.Disconnect()
-                $scpClient.Dispose()
-            }
         }
     }
 }

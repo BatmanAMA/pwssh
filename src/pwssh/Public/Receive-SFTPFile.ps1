@@ -62,11 +62,8 @@ function Receive-SFTPFile {
             New-Item -Path $parentDir -ItemType Directory -Force | Out-Null
         }
 
-        $sftpClient = $null
         try {
-            $connInfo = $s.InternalSession.ConnectionInfo
-            $sftpClient = [Renci.SshNet.SftpClient]::new($connInfo)
-            $sftpClient.Connect()
+            $sftpClient = $s.GetSftpClient()
 
             $stream = [System.IO.File]::Create($LocalPath)
             try {
@@ -79,12 +76,6 @@ function Receive-SFTPFile {
         }
         catch {
             Write-Error "SFTP download failed: $_"
-        }
-        finally {
-            if ($sftpClient) {
-                $sftpClient.Disconnect()
-                $sftpClient.Dispose()
-            }
         }
     }
 }

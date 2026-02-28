@@ -83,7 +83,43 @@ function Enter-SSHSession {
                     if ($key.Key -eq [ConsoleKey]::C -and $key.Modifiers -band [ConsoleModifiers]::Control) {
                         break
                     }
-                    $shell.Write($key.KeyChar.ToString())
+
+                    # Map special keys to ANSI escape sequences instead of sending null bytes
+                    # Use [char]0x1b instead of `e for PS 5.1 compatibility
+                    $esc = [char]0x1b
+                    $seq = switch ($key.Key) {
+                        ([ConsoleKey]::UpArrow)    { "${esc}[A" }
+                        ([ConsoleKey]::DownArrow)  { "${esc}[B" }
+                        ([ConsoleKey]::RightArrow) { "${esc}[C" }
+                        ([ConsoleKey]::LeftArrow)  { "${esc}[D" }
+                        ([ConsoleKey]::Home)        { "${esc}[H" }
+                        ([ConsoleKey]::End)         { "${esc}[F" }
+                        ([ConsoleKey]::Delete)      { "${esc}[3~" }
+                        ([ConsoleKey]::Insert)      { "${esc}[2~" }
+                        ([ConsoleKey]::PageUp)      { "${esc}[5~" }
+                        ([ConsoleKey]::PageDown)    { "${esc}[6~" }
+                        ([ConsoleKey]::F1)          { "${esc}[11~" }
+                        ([ConsoleKey]::F2)          { "${esc}[12~" }
+                        ([ConsoleKey]::F3)          { "${esc}[13~" }
+                        ([ConsoleKey]::F4)          { "${esc}[14~" }
+                        ([ConsoleKey]::F5)          { "${esc}[15~" }
+                        ([ConsoleKey]::F6)          { "${esc}[17~" }
+                        ([ConsoleKey]::F7)          { "${esc}[18~" }
+                        ([ConsoleKey]::F8)          { "${esc}[19~" }
+                        ([ConsoleKey]::F9)          { "${esc}[20~" }
+                        ([ConsoleKey]::F10)         { "${esc}[21~" }
+                        ([ConsoleKey]::F11)         { "${esc}[23~" }
+                        ([ConsoleKey]::F12)         { "${esc}[24~" }
+                        ([ConsoleKey]::Tab)         { "`t" }
+                        ([ConsoleKey]::Backspace)   { [char]0x7f }
+                        ([ConsoleKey]::Enter)       { "`r" }
+                        ([ConsoleKey]::Escape)      { $esc }
+                        default {
+                            if ($key.KeyChar -ne [char]0) { $key.KeyChar.ToString() } else { $null }
+                        }
+                    }
+
+                    if ($seq) { $shell.Write($seq) }
                 }
 
                 [System.Threading.Thread]::Sleep(10)

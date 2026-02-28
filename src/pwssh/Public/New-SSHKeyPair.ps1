@@ -95,20 +95,18 @@ function New-SSHKeyPair {
                     }
                 }
 
-                # Convert passphrase to plain string
                 $passStr = $null
-                if ($Passphrase) {
-                    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Passphrase)
-                    try {
-                        $passStr = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+                try {
+                    if ($Passphrase) {
+                        $passStr = ConvertFrom-SecureStringPlain -SecureString $Passphrase
                     }
-                    finally {
-                        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-                    }
-                }
 
-                # Write private key
-                $privContent = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPrivateKeyFile($keyData, $passStr)
+                    # Write private key
+                    $privContent = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPrivateKeyFile($keyData, $passStr)
+                }
+                finally {
+                    $passStr = $null
+                }
                 [System.IO.File]::WriteAllText($Path, $privContent)
 
                 # Write public key

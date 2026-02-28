@@ -80,7 +80,10 @@ function New-SSHPortForward {
                     [Renci.SshNet.ForwardedPortLocal]::new($BoundHost, [uint32]$BoundPort, $RemoteHost, [uint32]$RemotePort)
                 }
                 'Remote' {
-                    [Renci.SshNet.ForwardedPortRemote]::new($RemoteHost, [uint32]$RemotePort, $BoundHost, [uint32]$BoundPort)
+                    # SSH -R: BoundHost/BoundPort is where the remote side listens,
+                    # RemoteHost/RemotePort is the local forwarding destination.
+                    # Constructor signature: (boundHost, boundPort, host, port)
+                    [Renci.SshNet.ForwardedPortRemote]::new($BoundHost, [uint32]$BoundPort, $RemoteHost, [uint32]$RemotePort)
                 }
                 'Dynamic' {
                     [Renci.SshNet.ForwardedPortDynamic]::new($BoundHost, [uint32]$BoundPort)
