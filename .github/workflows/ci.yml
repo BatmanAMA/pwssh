@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test PS ${{ matrix.pwsh-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows PowerShell 5.1 (built-in on Windows)
+          - os: windows-latest
+            pwsh-version: '5.1'
+            shell: powershell
+
+          # PowerShell 7.4 on Windows
+          - os: windows-latest
+            pwsh-version: '7.4'
+            shell: pwsh
+
+          # PowerShell 7.5 on Windows
+          - os: windows-latest
+            pwsh-version: '7.5'
+            shell: pwsh
+
+          # PowerShell 7.4 on Ubuntu
+          - os: ubuntu-latest
+            pwsh-version: '7.4'
+            shell: pwsh
+
+          # PowerShell 7.5 on Ubuntu
+          - os: ubuntu-latest
+            pwsh-version: '7.5'
+            shell: pwsh
+
+          # PowerShell 7.4 on macOS
+          - os: macos-latest
+            pwsh-version: '7.4'
+            shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PowerShell ${{ matrix.pwsh-version }}
+        if: matrix.pwsh-version != '5.1'
+        uses: bjompen/UpdatePWSHAction@v1.0.0
+        with:
+          ReleaseVersion: ${{ matrix.pwsh-version }}
+
+      - name: Install Pester
+        shell: ${{ matrix.shell }}
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -MinimumVersion 5.0.0 -Force -Scope CurrentUser
+
+      - name: Run unit tests
+        shell: ${{ matrix.shell }}
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './Tests/Unit'
+          $config.Run.PassThru = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = './TestResults/testResults.xml'
+          $config.TestResult.OutputFormat = 'NUnitXml'
+
+          $result = Invoke-Pester -Configuration $config
+
+          if ($result.FailedCount -gt 0) {
+              throw "$($result.FailedCount) test(s) failed"
+          }
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}-ps${{ matrix.pwsh-version }}
+          path: TestResults/
+
+  build:
+    name: Build module
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        shell: pwsh
+        run: ./build.ps1 -Task Build
+
+      - name: Upload module artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwssh-module
+          path: output/pwssh/

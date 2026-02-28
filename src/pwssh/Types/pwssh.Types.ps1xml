@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Types>
+
+  <Type>
+    <Name>SSHSessionInfo</Name>
+    <Members>
+      <ScriptProperty>
+        <Name>IsAlive</Name>
+        <GetScriptBlock>
+          $this.Connected -and $this.InternalSession -and $this.InternalSession.IsConnected
+        </GetScriptBlock>
+      </ScriptProperty>
+      <ScriptProperty>
+        <Name>Uptime</Name>
+        <GetScriptBlock>
+          if ($this.Connected) { [datetime]::UtcNow - $this.ConnectedAt } else { [timespan]::Zero }
+        </GetScriptBlock>
+      </ScriptProperty>
+      <MemberSet>
+        <Name>PSStandardMembers</Name>
+        <Members>
+          <PropertySet>
+            <Name>DefaultDisplayPropertySet</Name>
+            <ReferencedProperties>
+              <Name>SessionId</Name>
+              <Name>ComputerName</Name>
+              <Name>Port</Name>
+              <Name>UserName</Name>
+              <Name>AuthMethod</Name>
+              <Name>Connected</Name>
+              <Name>ConnectedAt</Name>
+            </ReferencedProperties>
+          </PropertySet>
+        </Members>
+      </MemberSet>
+    </Members>
+  </Type>
+
+  <Type>
+    <Name>SSHCommandResult</Name>
+    <Members>
+      <ScriptProperty>
+        <Name>Success</Name>
+        <GetScriptBlock>
+          $this.ExitCode -eq 0
+        </GetScriptBlock>
+      </ScriptProperty>
+      <ScriptProperty>
+        <Name>OutputLines</Name>
+        <GetScriptBlock>
+          if ($this.Output) { $this.Output -split "`n" } else { @() }
+        </GetScriptBlock>
+      </ScriptProperty>
+      <MemberSet>
+        <Name>PSStandardMembers</Name>
+        <Members>
+          <PropertySet>
+            <Name>DefaultDisplayPropertySet</Name>
+            <ReferencedProperties>
+              <Name>SessionId</Name>
+              <Name>ComputerName</Name>
+              <Name>ExitCode</Name>
+              <Name>Duration</Name>
+              <Name>Output</Name>
+            </ReferencedProperties>
+          </PropertySet>
+        </Members>
+      </MemberSet>
+    </Members>
+  </Type>
+
+  <Type>
+    <Name>SSHPortForward</Name>
+    <Members>
+      <MemberSet>
+        <Name>PSStandardMembers</Name>
+        <Members>
+          <PropertySet>
+            <Name>DefaultDisplayPropertySet</Name>
+            <ReferencedProperties>
+              <Name>ForwardId</Name>
+              <Name>SessionId</Name>
+              <Name>Type</Name>
+              <Name>BoundHost</Name>
+              <Name>BoundPort</Name>
+              <Name>RemoteHost</Name>
+              <Name>RemotePort</Name>
+              <Name>IsStarted</Name>
+            </ReferencedProperties>
+          </PropertySet>
+        </Members>
+      </MemberSet>
+    </Members>
+  </Type>
+
+</Types>

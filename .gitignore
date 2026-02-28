@@ -1,0 +1,24 @@
+# Build output
+output/
+bin/
+obj/
+
+# NuGet packages
+packages/
+*.nupkg
+lib/
+
+# IDE
+.vscode/
+.vs/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PowerShell
+TestResults/
+*.TestResults.xml
+coverage.xml
