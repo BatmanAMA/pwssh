@@ -20,6 +20,7 @@ $SrcPath      = Join-Path $PSScriptRoot 'src' $ModuleName
 $OutputPath   = Join-Path $PSScriptRoot 'output' $ModuleName
 $TestPath     = Join-Path $PSScriptRoot 'Tests'
 $LibPath      = Join-Path $SrcPath 'lib'
+$CSharpPath   = Join-Path $SrcPath 'Private' 'CSharp'
 $NuGetPkgName = 'SSH.NET'
 $NuGetPkgVer  = '2024.2.0'
 
@@ -36,10 +37,56 @@ function Invoke-Build {
         Install-SshNetPackage
     }
 
+    # Compile PwSSH.Crypto.dll from C# source
+    Build-CryptoAssembly
+
     # Copy module files
     Copy-Item -Path (Join-Path $SrcPath '*') -Destination $OutputPath -Recurse -Force
 
+    # Remove raw C# source from output — only the compiled DLL ships
+    $outputCSharpDir = Join-Path $OutputPath 'Private' 'CSharp'
+    if (Test-Path $outputCSharpDir) {
+        Remove-Item $outputCSharpDir -Recurse -Force
+    }
+
     Write-Host "Build complete: $OutputPath" -ForegroundColor Green
+}
+
+function Build-CryptoAssembly {
+    Write-Host "  Compiling PwSSH.Crypto..." -ForegroundColor Yellow
+
+    $csprojPath = Join-Path $CSharpPath 'PwSSH.Crypto.csproj'
+    if (-not (Test-Path $csprojPath)) {
+        throw "Cannot find PwSSH.Crypto.csproj at $csprojPath"
+    }
+
+    # Verify dotnet SDK is available
+    try {
+        $null = & dotnet --version 2>&1
+    }
+    catch {
+        throw "dotnet SDK not found. Install .NET SDK 6.0+ from https://dot.net/download"
+    }
+
+    # Build the DLL
+    & dotnet build $csprojPath -c Release -o (Join-Path $CSharpPath 'bin' 'publish') --nologo -v quiet
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet build failed for PwSSH.Crypto (exit code $LASTEXITCODE)"
+    }
+
+    # Copy DLL to lib/ alongside Renci.SshNet.dll
+    New-Item -Path $LibPath -ItemType Directory -Force | Out-Null
+    $builtDll = Join-Path $CSharpPath 'bin' 'publish' 'PwSSH.Crypto.dll'
+    if (-not (Test-Path $builtDll)) {
+        throw "Build produced no output: $builtDll not found"
+    }
+    Copy-Item $builtDll -Destination $LibPath -Force
+
+    # Generate integrity hash
+    $installedDll = Join-Path $LibPath 'PwSSH.Crypto.dll'
+    $hash = (Get-FileHash -Path $installedDll -Algorithm SHA256).Hash.ToUpperInvariant()
+    [System.IO.File]::WriteAllText((Join-Path $LibPath 'PwSSH.Crypto.dll.sha256'), $hash)
+    Write-Host "  Compiled PwSSH.Crypto.dll - SHA256: $hash" -ForegroundColor Green
 }
 
 function Install-SshNetPackage {
@@ -127,7 +174,12 @@ function Invoke-Analyze {
 
 function Invoke-Clean {
     Write-Host "=== Cleaning ===" -ForegroundColor Cyan
-    @($OutputPath, (Join-Path $PSScriptRoot 'TestResults')) | ForEach-Object {
+    @(
+        $OutputPath,
+        (Join-Path $PSScriptRoot 'TestResults'),
+        (Join-Path $CSharpPath 'bin'),
+        (Join-Path $CSharpPath 'obj')
+    ) | ForEach-Object {
         if (Test-Path $_) { Remove-Item $_ -Recurse -Force }
     }
     Write-Host "Clean complete." -ForegroundColor Green

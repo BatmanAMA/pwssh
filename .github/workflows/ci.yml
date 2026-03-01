@@ -48,11 +48,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
       - name: Install PowerShell ${{ matrix.pwsh-version }}
         if: matrix.pwsh-version != '5.1'
         uses: bjompen/UpdatePWSHAction@v1.0.0
         with:
           ReleaseVersion: ${{ matrix.pwsh-version }}
+
+      - name: Build module
+        shell: ${{ matrix.shell }}
+        run: ./build.ps1 -Task Build
 
       - name: Install Pester
         shell: ${{ matrix.shell }}
@@ -91,6 +100,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
 
       - name: Build
         shell: pwsh

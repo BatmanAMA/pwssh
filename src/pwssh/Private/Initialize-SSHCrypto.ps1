@@ -1,8 +1,12 @@
 function Initialize-SSHCrypto {
     <#
     .SYNOPSIS
-        Loads the PwSSH.Crypto C# types via Add-Type.
+        Loads the pre-compiled PwSSH.Crypto assembly.
         Idempotent — skips if already loaded.
+    .DESCRIPTION
+        Loads PwSSH.Crypto.dll from the module's lib directory with SHA-256
+        integrity verification. The DLL is compiled at build time from
+        SSHCrypto.cs via 'dotnet build' (see build.ps1).
     #>
     [CmdletBinding()]
     param()
@@ -12,54 +16,35 @@ function Initialize-SSHCrypto {
         return
     }
 
-    $csPath = Join-Path $PSScriptRoot 'CSharp' 'SSHCrypto.cs'
-    if (-not (Test-Path $csPath)) {
-        throw "Cannot find SSHCrypto.cs at $csPath"
+    # Resolve path: Private/Initialize-SSHCrypto.ps1 -> ../lib/PwSSH.Crypto.dll
+    $moduleRoot = Split-Path $PSScriptRoot -Parent
+    $dllPath = Join-Path $moduleRoot 'lib' 'PwSSH.Crypto.dll'
+    $hashPath = Join-Path $moduleRoot 'lib' 'PwSSH.Crypto.dll.sha256'
+
+    if (-not (Test-Path $dllPath)) {
+        throw "pwssh: PwSSH.Crypto.dll not found at $dllPath. Run build.ps1 to compile the crypto assembly."
     }
 
-    $csSource = [System.IO.File]::ReadAllText($csPath)
-
-    # Build referenced assemblies list (differs between Desktop and Core)
-    $refs = [System.Collections.Generic.List[string]]::new()
-
-    if ($PSVersionTable.PSEdition -eq 'Desktop') {
-        # .NET Framework — need explicit reference to System.Numerics.dll
-        $refs.Add('System.Numerics')
-    }
-    else {
-        # .NET Core / .NET 5+ — find System.Runtime.Numerics assembly
-        $numAssembly = [System.Numerics.BigInteger].Assembly.Location
-        if ($numAssembly) { $refs.Add($numAssembly) }
-
-        # Also need System.Security.Cryptography assemblies
-        $cryptoAssemblies = @(
-            [System.Security.Cryptography.SHA512].Assembly.Location,
-            [System.Security.Cryptography.RSA].Assembly.Location,
-            [System.Security.Cryptography.ECDsa].Assembly.Location,
-            [System.Security.Cryptography.Aes].Assembly.Location,
-            [System.Security.Cryptography.RandomNumberGenerator].Assembly.Location
-        ) | Where-Object { $_ } | Select-Object -Unique
-
-        foreach ($a in $cryptoAssemblies) {
-            $refs.Add($a)
+    # Verify DLL integrity if hash file is present
+    if (Test-Path $hashPath) {
+        $expectedHash = ([System.IO.File]::ReadAllText($hashPath)).Trim().ToUpperInvariant()
+        $actualHash = (Get-FileHash -Path $dllPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        if ($expectedHash -ne $actualHash) {
+            throw "pwssh: PwSSH.Crypto.dll integrity check FAILED. Expected SHA256: $expectedHash, Got: $actualHash. The assembly may have been tampered with."
         }
     }
-
-    $params = @{
-        TypeDefinition       = $csSource
-        Language              = 'CSharp'
-        ErrorAction           = 'Stop'
-    }
-
-    if ($refs.Count -gt 0) {
-        $params['ReferencedAssemblies'] = $refs.ToArray()
+    else {
+        Write-Warning "pwssh: No integrity hash file found at $hashPath. PwSSH.Crypto.dll loaded without verification. Run build.ps1 to generate the hash file."
     }
 
     try {
-        Add-Type @params
-        Write-Verbose 'PwSSH.Crypto types compiled and loaded.'
+        Add-Type -Path $dllPath -ErrorAction Stop
+        Write-Verbose 'PwSSH.Crypto assembly loaded.'
+    }
+    catch [System.Reflection.ReflectionTypeLoadException] {
+        # Assembly already loaded — safe to ignore
     }
     catch {
-        throw "Failed to compile PwSSH.Crypto: $_"
+        throw "Failed to load PwSSH.Crypto: $_"
     }
 }
