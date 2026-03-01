@@ -5,11 +5,11 @@
 .DESCRIPTION
     Downloads dependencies, runs tests, and prepares the module for distribution.
 .PARAMETER Task
-    The build task to run: Build, Test, Clean, or Publish.
+    The build task to run: Build, Test, Analyze, Clean, or Publish.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Build', 'Test', 'Clean', 'Publish')]
+    [ValidateSet('Build', 'Test', 'Analyze', 'Clean', 'Publish')]
     [string]$Task = 'Build'
 )
 
@@ -99,6 +99,32 @@ function Invoke-Tests {
     Write-Host "All $($results.PassedCount) tests passed." -ForegroundColor Green
 }
 
+function Invoke-Analyze {
+    Write-Host "=== Running PSScriptAnalyzer ===" -ForegroundColor Cyan
+
+    if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+        Write-Host "Installing PSScriptAnalyzer..." -ForegroundColor Yellow
+        Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+    }
+
+    $settingsPath = Join-Path $PSScriptRoot 'PSScriptAnalyzerSettings.psd1'
+    $analyzerParams = @{
+        Path     = $OutputPath
+        Recurse  = $true
+        Severity = @('Error', 'Warning')
+    }
+    if (Test-Path $settingsPath) {
+        $analyzerParams['Settings'] = $settingsPath
+    }
+
+    $findings = Invoke-ScriptAnalyzer @analyzerParams
+    if ($findings) {
+        $findings | Format-Table -AutoSize
+        throw "$($findings.Count) PSScriptAnalyzer finding(s) with severity Error or Warning."
+    }
+    Write-Host "PSScriptAnalyzer passed — no errors or warnings." -ForegroundColor Green
+}
+
 function Invoke-Clean {
     Write-Host "=== Cleaning ===" -ForegroundColor Cyan
     @($OutputPath, (Join-Path $PSScriptRoot 'TestResults')) | ForEach-Object {
@@ -107,9 +133,26 @@ function Invoke-Clean {
     Write-Host "Clean complete." -ForegroundColor Green
 }
 
+function Invoke-Publish {
+    Write-Host "=== Publishing $ModuleName to PSGallery ===" -ForegroundColor Cyan
+
+    if (-not $env:NUGET_API_KEY) {
+        throw "Cannot publish: `$env:NUGET_API_KEY is not set. Get your API key from https://www.powershellgallery.com/account/apikeys"
+    }
+
+    # Validate the module manifest before publishing
+    $manifestPath = Join-Path $OutputPath "$ModuleName.psd1"
+    Test-ModuleManifest -Path $manifestPath -ErrorAction Stop | Out-Null
+    Write-Host "  Manifest validation passed." -ForegroundColor Green
+
+    Publish-Module -Path $OutputPath -NuGetApiKey $env:NUGET_API_KEY -Repository PSGallery
+    Write-Host "Published $ModuleName to PSGallery." -ForegroundColor Green
+}
+
 switch ($Task) {
     'Build'   { Invoke-Build }
     'Test'    { Invoke-Build; Invoke-Tests }
+    'Analyze' { Invoke-Build; Invoke-Analyze }
     'Clean'   { Invoke-Clean }
-    'Publish' { Invoke-Build; Write-Host 'Publish not yet implemented' -ForegroundColor Yellow }
+    'Publish' { Invoke-Build; Invoke-Tests; Invoke-Analyze; Invoke-Publish }
 }

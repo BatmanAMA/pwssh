@@ -56,6 +56,8 @@
     VariablesToExport  = @()
     AliasesToExport    = @()
 
+    HelpInfoURI = 'https://github.com/BatmanAMA/pwssh/tree/main/docs'
+
     PrivateData = @{
         PSData = @{
             Tags         = @('SSH', 'SCP', 'SFTP', 'RemoteAccess', 'Networking', 'Linux', 'CrossPlatform')

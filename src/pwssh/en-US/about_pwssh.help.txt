@@ -1,0 +1,94 @@
+TOPIC
+    about_pwssh
+
+SHORT DESCRIPTION
+    A pure .NET/PowerShell SSH client module built on SSH.NET.
+
+LONG DESCRIPTION
+    pwssh provides SSH session management, command execution, SCP/SFTP file
+    transfer, port forwarding, and key management from PowerShell. It runs on
+    Windows PowerShell 5.1 and PowerShell 7.4+ across Windows, Linux, and
+    macOS. No external binaries (ssh, ssh-keygen, scp) are required.
+
+    The module uses the SSH.NET library (Renci.SshNet) for the SSH protocol
+    implementation and includes a pure .NET cryptographic engine for SSH key
+    generation in OpenSSH format.
+
+GETTING STARTED
+    # Connect to a host with a key (tries ~/.ssh/id_ed25519 by default)
+    $session = New-SSHSession -ComputerName server01 -UserName admin
+
+    # Connect with a password
+    $cred = Get-Credential
+    $session = New-SSHSession -ComputerName server01 -Credential $cred
+
+    # Run a command
+    $result = Invoke-SSHCommand -SessionId $session.SessionId -Command 'hostname'
+    $result.Output
+
+    # Disconnect
+    Remove-SSHSession -SessionId $session.SessionId
+
+KEY CONCEPTS
+
+  Sessions
+    All operations go through an SSH session created by New-SSHSession. The
+    session is identified by a SessionId (integer). Multiple sessions can be
+    open simultaneously. Use Get-SSHSession to list them and Remove-SSHSession
+    to close them. The raw SSH.NET client object is never exposed to callers.
+
+  Authentication
+    Three methods are supported:
+
+    - Key-based: -KeyFile points to an OpenSSH private key. If no auth method
+      is specified, pwssh tries ~/.ssh/id_ed25519, id_rsa, and id_ecdsa.
+    - Password: -Credential accepts a PSCredential object.
+    - Default keys: If neither -KeyFile nor -Credential is given, pwssh
+      automatically tries default key files in ~/.ssh/.
+
+  Host Key Verification (TOFU)
+    pwssh uses Trust On First Use, the same model as OpenSSH:
+
+    - Unknown host: prompts to accept (or use -AcceptKey to auto-accept)
+    - Known host with matching key: trusted automatically
+    - Known host with changed key: connection REFUSED
+
+    Known hosts are stored in ~/.ssh/known_hosts in OpenSSH format.
+
+  File Transfer
+    SCP (Send-SCPFile, Receive-SCPFile) and SFTP (Send-SFTPFile,
+    Receive-SFTPFile, Get-SFTPChildItem) are both supported. SFTP is
+    preferred for better error handling and directory listing support.
+
+  Port Forwarding
+    New-SSHPortForward creates local, remote, or dynamic (SOCKS) tunnels
+    through an SSH session. Get-SSHPortForward lists active tunnels and
+    Remove-SSHPortForward stops them.
+
+  Key Generation
+    New-SSHKeyPair generates Ed25519, RSA, or ECDSA key pairs in OpenSSH
+    format using pure .NET cryptography. No ssh-keygen binary is needed.
+    ConvertTo-SSHPublicKey extracts the public key from a private key file.
+    Get-SSHKeyFingerprint shows the fingerprint. Test-SSHKeyFile validates
+    key file integrity.
+
+  Security Hardening
+    The module strips weak algorithms (3DES, Blowfish, Arcfour, HMAC-MD5,
+    DH Group1) from SSH.NET defaults, verifies the SSH.NET DLL integrity
+    via SHA-256 hash at load time, and wipes credential byte arrays in
+    memory after use.
+
+TROUBLESHOOTING
+    If New-SSHSession fails with "No authentication method available", ensure
+    you are passing -Credential or -KeyFile, or that a default key exists in
+    ~/.ssh/. Encrypted keys require -KeyPassphrase.
+
+    If host key verification fails with a "REMOTE HOST IDENTIFICATION HAS
+    CHANGED" warning, the server's key has changed since you last connected.
+    This could indicate a MITM attack or a legitimate server reinstallation.
+    Use Remove-SSHKnownHost to clear the old key if you are certain the
+    change is expected.
+
+SEE ALSO
+    https://github.com/BatmanAMA/pwssh
+    https://github.com/BatmanAMA/pwssh/tree/main/docs
