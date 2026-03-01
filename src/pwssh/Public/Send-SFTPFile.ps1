@@ -48,7 +48,7 @@ function Send-SFTPFile {
             'BySession' { $Session }
         }
 
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
+        if (-not $s.Connected -or -not (Test-SSHClientConnected -SessionId $s.SessionId)) {
             Write-Error "Session $($s.SessionId) is not connected."
             return
         }
@@ -56,7 +56,7 @@ function Send-SFTPFile {
         $resolvedPath = Resolve-Path -Path $LocalPath -ErrorAction Stop
 
         try {
-            $sftpClient = $s.GetSftpClient()
+            $sftpClient = Get-SSHSftpClientInternal -SessionId $s.SessionId
 
             $stream = [System.IO.File]::OpenRead($resolvedPath.Path)
             try {

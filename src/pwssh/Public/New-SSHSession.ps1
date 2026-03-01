@@ -116,6 +116,14 @@ function New-SSHSession {
                 )
                 $connInfo.Timeout = [timespan]::FromSeconds($ConnectionTimeout)
 
+                # Strip known-weak algorithms from SSH.NET defaults to prevent downgrade attacks
+                $weakCiphers = @('3des-cbc', 'blowfish-cbc', 'arcfour', 'arcfour128', 'arcfour256', 'cast128-cbc')
+                $weakMacs    = @('hmac-md5', 'hmac-md5-96', 'hmac-sha1-96')
+                $weakKex     = @('diffie-hellman-group1-sha1')
+                foreach ($c in $weakCiphers) { $connInfo.Encryptions.Remove($c) | Out-Null }
+                foreach ($m in $weakMacs)    { $connInfo.HmacAlgorithms.Remove($m) | Out-Null }
+                foreach ($k in $weakKex)     { $connInfo.KeyExchangeAlgorithms.Remove($k) | Out-Null }
+
                 $client = [Renci.SshNet.SshClient]::new($connInfo)
 
                 if ($KeepAliveInterval -gt 0) {
@@ -246,8 +254,14 @@ function New-SSHSession {
                 $session.Connected = $client.IsConnected
                 $session.ServerVersion = $connInfo.ServerVersion
                 $session.ClientVersion = $connInfo.ClientVersion
-                $session.InternalSession = $client
-                $session.VerifiedHostKeyFingerprint = $hostKeyResult.Fingerprint
+
+                # Store raw SSH client in module-scoped store (never exposed to callers)
+                $script:SSHClients[$session.SessionId] = @{
+                    Client      = $client
+                    SftpClient  = $null
+                    ScpClient   = $null
+                    Fingerprint = $hostKeyResult.Fingerprint
+                }
 
                 $script:SSHSessions[$session.SessionId] = $session
 

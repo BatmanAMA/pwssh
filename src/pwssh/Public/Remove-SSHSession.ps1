@@ -47,8 +47,9 @@ function Remove-SSHSession {
                     $script:SSHPortForwards.Remove($fwd.ForwardId) | Out-Null
                 }
 
-                $s.Disconnect()
+                Disconnect-SSHSessionInternal -SessionId $id
                 $script:SSHSessions.Remove($id) | Out-Null
+                $script:SSHClients.Remove($id) | Out-Null
                 Write-Verbose "Session $id disconnected."
             }
         }

@@ -81,6 +81,11 @@ function New-SSHKeyPair {
         if ($PSCmdlet.ShouldProcess($Path, "Generate $KeyType key")) {
             try {
                 # Generate key data
+                # Warn about non-constant-time Ed25519 on pre-.NET 9 runtimes
+                if ($KeyType -eq 'Ed25519' -and [System.Environment]::Version.Major -lt 9) {
+                    Write-Warning ("Ed25519 key generation uses non-constant-time arithmetic on this .NET version. " +
+                        "For production keys on shared infrastructure, consider using ssh-keygen or upgrading to .NET 9+ (PowerShell 7.5+).")
+                }
                 $keyData = switch ($KeyType) {
                     'Ed25519' {
                         [PwSSH.Crypto.OpenSshKeyFormat]::GenerateEd25519($Comment)

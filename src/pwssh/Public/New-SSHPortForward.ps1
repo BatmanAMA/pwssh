@@ -64,7 +64,7 @@ function New-SSHPortForward {
             'BySession' { $Session }
         }
 
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
+        if (-not $s.Connected -or -not (Test-SSHClientConnected -SessionId $s.SessionId)) {
             Write-Error "Session $($s.SessionId) is not connected."
             return
         }
@@ -97,7 +97,7 @@ function New-SSHPortForward {
                 }
             }
 
-            $s.InternalSession.AddForwardedPort($fwdPort)
+            (Resolve-SSHClient -SessionId $s.SessionId).Client.AddForwardedPort($fwdPort)
             $fwdPort.Start()
 
             $forward = [SSHPortForward]::new()

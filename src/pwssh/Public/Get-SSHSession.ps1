@@ -58,7 +58,7 @@ function Get-SSHSession {
 
         if ($Active) {
             $sessions | Where-Object {
-                $_.Connected -and $_.InternalSession -and $_.InternalSession.IsConnected
+                $_.Connected -and (Test-SSHClientConnected -SessionId $_.SessionId)
             }
         }
         else {

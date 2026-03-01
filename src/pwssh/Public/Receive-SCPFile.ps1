@@ -49,7 +49,7 @@ function Receive-SCPFile {
             'BySession' { $Session }
         }
 
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
+        if (-not $s.Connected -or -not (Test-SSHClientConnected -SessionId $s.SessionId)) {
             Write-Error "Session $($s.SessionId) is not connected."
             return
         }
@@ -58,7 +58,7 @@ function Receive-SCPFile {
         $LocalPath = [System.IO.Path]::GetFullPath($LocalPath)
 
         try {
-            $scpClient = $s.GetScpClient()
+            $scpClient = Get-SSHScpClientInternal -SessionId $s.SessionId
 
             if ($Recurse) {
                 $dirInfo = [System.IO.DirectoryInfo]::new($LocalPath)

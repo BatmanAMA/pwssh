@@ -63,15 +63,17 @@ if (Test-Path $publicPath) {
 
 # Initialize module state
 $script:SSHSessions     = [System.Collections.Generic.Dictionary[int, SSHSessionInfo]]::new()
+$script:SSHClients      = [System.Collections.Generic.Dictionary[int, hashtable]]::new()  # SessionId -> @{ Client; SftpClient; ScpClient; Fingerprint }
 $script:SSHPortForwards  = [System.Collections.Generic.Dictionary[int, SSHPortForward]]::new()
 $script:NextSessionId    = 1
 $script:NextForwardId    = 1
 
 # Module cleanup — disconnect all sessions on module removal
 $MyInvocation.MyCommand.ScriptBlock.Module.OnRemove = {
-    foreach ($session in $script:SSHSessions.Values) {
-        try { $session.Disconnect() } catch { }
+    foreach ($id in @($script:SSHClients.Keys)) {
+        try { Disconnect-SSHSessionInternal -SessionId $id } catch { }
     }
     $script:SSHSessions.Clear()
+    $script:SSHClients.Clear()
     $script:SSHPortForwards.Clear()
 }

@@ -53,7 +53,7 @@ function Enter-SSHSession {
             'BySession' { $Session }
         }
 
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
+        if (-not $s.Connected -or -not (Test-SSHClientConnected -SessionId $s.SessionId)) {
             Write-Error "Session $($s.SessionId) is not connected."
             return
         }
@@ -63,14 +63,15 @@ function Enter-SSHSession {
 
         $shell = $null
         try {
-            $shell = $s.InternalSession.CreateShellStream($TerminalType, [uint32]$cols, [uint32]$rows, [uint32]0, [uint32]0, 4096)
+            $sshClient = (Resolve-SSHClient -SessionId $s.SessionId).Client
+            $shell = $sshClient.CreateShellStream($TerminalType, [uint32]$cols, [uint32]$rows, [uint32]0, [uint32]0, 4096)
 
             Write-Host "Interactive SSH session to $($s.ComputerName). Type 'exit' to disconnect." -ForegroundColor Cyan
 
             $encoding = [System.Text.Encoding]::UTF8
             $buffer = [byte[]]::new(4096)
 
-            while ($s.InternalSession.IsConnected) {
+            while ($sshClient.IsConnected) {
                 # Read from remote
                 if ($shell.DataAvailable) {
                     $read = $shell.Read()

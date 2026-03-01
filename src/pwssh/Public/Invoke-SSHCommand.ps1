@@ -57,7 +57,7 @@ function Invoke-SSHCommand {
         }
 
         foreach ($s in $sessions) {
-            if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
+            if (-not $s.Connected -or -not (Test-SSHClientConnected -SessionId $s.SessionId)) {
                 Write-Error "Session $($s.SessionId) is not connected."
                 continue
             }
@@ -68,7 +68,8 @@ function Invoke-SSHCommand {
             $startTime = [datetime]::UtcNow
 
             try {
-                $sshCmd = $s.InternalSession.CreateCommand($Command)
+                $sshClient = (Resolve-SSHClient -SessionId $s.SessionId).Client
+                $sshCmd = $sshClient.CreateCommand($Command)
                 if ($Timeout -gt 0) {
                     $sshCmd.CommandTimeout = [timespan]::FromSeconds($Timeout)
                 }

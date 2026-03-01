@@ -49,7 +49,7 @@ function Send-SCPFile {
             'BySession' { $Session }
         }
 
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
+        if (-not $s.Connected -or -not (Test-SSHClientConnected -SessionId $s.SessionId)) {
             Write-Error "Session $($s.SessionId) is not connected."
             return
         }
@@ -57,7 +57,7 @@ function Send-SCPFile {
         $resolvedPath = Resolve-Path -Path $LocalPath -ErrorAction Stop
 
         try {
-            $scpClient = $s.GetScpClient()
+            $scpClient = Get-SSHScpClientInternal -SessionId $s.SessionId
 
             if (Test-Path $resolvedPath -PathType Container) {
                 if (-not $Recurse) {

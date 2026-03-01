@@ -7,7 +7,7 @@
       <ScriptProperty>
         <Name>IsAlive</Name>
         <GetScriptBlock>
-          $this.Connected -and $this.InternalSession -and $this.InternalSession.IsConnected
+          $this.Connected
         </GetScriptBlock>
       </ScriptProperty>
       <ScriptProperty>
