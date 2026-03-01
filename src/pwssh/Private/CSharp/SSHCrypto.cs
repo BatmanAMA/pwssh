@@ -6,11 +6,67 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace PwSSH.Crypto
 {
+    // ======================================================================
+    // SecureBuffer — pins a byte[] so the GC cannot relocate it, and
+    // zeroes it on Dispose. Use for all key material and credentials.
+    // ======================================================================
+    public sealed class SecureBuffer : IDisposable
+    {
+        private readonly byte[] _buffer;
+        private GCHandle _handle;
+        private bool _disposed;
+
+        public SecureBuffer(int size)
+        {
+            _buffer = new byte[size];
+            _handle = GCHandle.Alloc(_buffer, GCHandleType.Pinned);
+        }
+
+        public SecureBuffer(byte[] source)
+        {
+            _buffer = new byte[source.Length];
+            _handle = GCHandle.Alloc(_buffer, GCHandleType.Pinned);
+            Array.Copy(source, _buffer, source.Length);
+        }
+
+        public byte[] Buffer
+        {
+            get
+            {
+                if (_disposed) throw new ObjectDisposedException(nameof(SecureBuffer));
+                return _buffer;
+            }
+        }
+
+        public int Length { get { return _buffer.Length; } }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            Array.Clear(_buffer, 0, _buffer.Length);
+            if (_handle.IsAllocated) _handle.Free();
+        }
+    }
+
+    // ======================================================================
+    // CryptoUtil — helper to wipe byte arrays that cannot use SecureBuffer
+    // (e.g., arrays returned from .NET crypto APIs)
+    // ======================================================================
+    public static class CryptoUtil
+    {
+        public static void Wipe(byte[] data)
+        {
+            if (data != null) Array.Clear(data, 0, data.Length);
+        }
+    }
+
     // ======================================================================
     // SSH Wire Format helpers
     // ======================================================================
@@ -124,26 +180,35 @@ namespace PwSSH.Crypto
             if (seed == null || seed.Length != 32)
                 throw new ArgumentException("Seed must be exactly 32 bytes.");
 
-            byte[] h;
-            using (var sha = SHA512.Create()) { h = sha.ComputeHash(seed); }
+            byte[] h = null;
+            byte[] scalarBytes = null;
+            try
+            {
+                using (var sha = SHA512.Create()) { h = sha.ComputeHash(seed); }
 
-            // Clamp
-            h[0] &= 248;
-            h[31] &= 127;
-            h[31] |= 64;
+                // Clamp
+                h[0] &= 248;
+                h[31] &= 127;
+                h[31] |= 64;
 
-            byte[] scalarBytes = new byte[32];
-            Array.Copy(h, 0, scalarBytes, 0, 32);
-            BigInteger a = FromLE(scalarBytes);
+                scalarBytes = new byte[32];
+                Array.Copy(h, 0, scalarBytes, 0, 32);
+                BigInteger a = FromLE(scalarBytes);
 
-            // A = a * B
-            BigInteger ax, ay;
-            ScalarMult(Bx, By, a, out ax, out ay);
+                // A = a * B
+                BigInteger ax, ay;
+                ScalarMult(Bx, By, a, out ax, out ay);
 
-            publicKey = EncodePoint(ax, ay);
-            expandedPrivate = new byte[64];
-            Array.Copy(seed, 0, expandedPrivate, 0, 32);
-            Array.Copy(publicKey, 0, expandedPrivate, 32, 32);
+                publicKey = EncodePoint(ax, ay);
+                expandedPrivate = new byte[64];
+                Array.Copy(seed, 0, expandedPrivate, 0, 32);
+                Array.Copy(publicKey, 0, expandedPrivate, 32, 32);
+            }
+            finally
+            {
+                CryptoUtil.Wipe(h);
+                CryptoUtil.Wipe(scalarBytes);
+            }
         }
 
         // --- Field arithmetic ---
@@ -694,54 +759,76 @@ namespace PwSSH.Crypto
         {
             if (rounds < 1) throw new ArgumentException("Rounds must be >= 1");
 
-            byte[] sha2pass;
-            using (var sha = SHA512.Create()) { sha2pass = sha.ComputeHash(password); }
-
-            int numBlocks = (keyLength + 31) / 32;
-            byte[] output = new byte[numBlocks * 32];
-
-            for (int block = 1; block <= numBlocks; block++)
+            byte[] sha2pass = null;
+            byte[] output = null;
+            byte[] sha2salt = null;
+            byte[] outBlock = null;
+            byte[] tmpOut = null;
+            try
             {
-                // SHA-512(salt || block_number_BE)
-                byte[] sha2salt;
-                using (var sha = SHA512.Create())
-                {
-                    sha.TransformBlock(salt, 0, salt.Length, null, 0);
-                    byte[] ctr = new byte[4];
-                    ctr[0] = (byte)(block >> 24);
-                    ctr[1] = (byte)(block >> 16);
-                    ctr[2] = (byte)(block >> 8);
-                    ctr[3] = (byte)block;
-                    sha.TransformFinalBlock(ctr, 0, 4);
-                    sha2salt = sha.Hash;
-                }
+                using (var sha = SHA512.Create()) { sha2pass = sha.ComputeHash(password); }
 
-                byte[] outBlock = BcryptHash(sha2pass, sha2salt);
-                byte[] tmpOut = (byte[])outBlock.Clone();
+                int numBlocks = (keyLength + 31) / 32;
+                output = new byte[numBlocks * 32];
 
-                for (int r = 1; r < rounds; r++)
+                for (int block = 1; block <= numBlocks; block++)
                 {
-                    // SHA-512 the previous output to get new salt
-                    using (var sha = SHA512.Create()) { sha2salt = sha.ComputeHash(outBlock); }
+                    // SHA-512(salt || block_number_BE)
+                    using (var sha = SHA512.Create())
+                    {
+                        sha.TransformBlock(salt, 0, salt.Length, null, 0);
+                        byte[] ctr = new byte[4];
+                        ctr[0] = (byte)(block >> 24);
+                        ctr[1] = (byte)(block >> 16);
+                        ctr[2] = (byte)(block >> 8);
+                        ctr[3] = (byte)block;
+                        sha.TransformFinalBlock(ctr, 0, 4);
+                        sha2salt = sha.Hash;
+                    }
+
                     outBlock = BcryptHash(sha2pass, sha2salt);
-                    for (int j = 0; j < 32; j++) tmpOut[j] ^= outBlock[j];
+                    tmpOut = (byte[])outBlock.Clone();
+
+                    for (int r = 1; r < rounds; r++)
+                    {
+                        CryptoUtil.Wipe(sha2salt);
+                        // SHA-512 the previous output to get new salt
+                        using (var sha = SHA512.Create()) { sha2salt = sha.ComputeHash(outBlock); }
+                        CryptoUtil.Wipe(outBlock);
+                        outBlock = BcryptHash(sha2pass, sha2salt);
+                        for (int j = 0; j < 32; j++) tmpOut[j] ^= outBlock[j];
+                    }
+
+                    Array.Copy(tmpOut, 0, output, (block - 1) * 32, 32);
+                    CryptoUtil.Wipe(tmpOut);
+                    CryptoUtil.Wipe(outBlock);
+                    CryptoUtil.Wipe(sha2salt);
+                    tmpOut = null;
+                    outBlock = null;
+                    sha2salt = null;
                 }
 
-                Array.Copy(tmpOut, 0, output, (block - 1) * 32, 32);
+                // Interleave bytes per OpenSSH convention
+                byte[] result = new byte[keyLength];
+                int stride = numBlocks * 32;
+                for (int i = 0; i < keyLength; i++)
+                {
+                    int srcBlock = i / 32;
+                    int srcByte = i % 32;
+                    int srcIdx = srcByte * numBlocks + srcBlock;
+                    if (srcIdx < output.Length)
+                        result[i] = output[srcIdx];
+                }
+                return result;
             }
-
-            // Interleave bytes per OpenSSH convention
-            byte[] result = new byte[keyLength];
-            int stride = numBlocks * 32;
-            for (int i = 0; i < keyLength; i++)
+            finally
             {
-                int srcBlock = i / 32;
-                int srcByte = i % 32;
-                int srcIdx = srcByte * numBlocks + srcBlock;
-                if (srcIdx < output.Length)
-                    result[i] = output[srcIdx];
+                CryptoUtil.Wipe(sha2pass);
+                CryptoUtil.Wipe(output);
+                CryptoUtil.Wipe(sha2salt);
+                CryptoUtil.Wipe(outBlock);
+                CryptoUtil.Wipe(tmpOut);
             }
-            return result;
         }
 
         private static byte[] BcryptHash(byte[] sha2pass, byte[] sha2salt)
@@ -1017,13 +1104,27 @@ namespace PwSSH.Crypto
             // Encrypt if needed
             if (encrypt)
             {
-                byte[] passBytes = Encoding.UTF8.GetBytes(passphrase);
-                byte[] derived = BcryptPbkdf.DeriveKey(passBytes, salt, rounds, 48); // 32 key + 16 iv
-                byte[] aesKey = new byte[32];
-                byte[] aesIv = new byte[16];
-                Array.Copy(derived, 0, aesKey, 0, 32);
-                Array.Copy(derived, 32, aesIv, 0, 16);
-                privSection = AesCtr.Transform(aesKey, aesIv, privSection);
+                byte[] passBytes = null;
+                byte[] derived = null;
+                byte[] aesKey = null;
+                byte[] aesIv = null;
+                try
+                {
+                    passBytes = Encoding.UTF8.GetBytes(passphrase);
+                    derived = BcryptPbkdf.DeriveKey(passBytes, salt, rounds, 48); // 32 key + 16 iv
+                    aesKey = new byte[32];
+                    aesIv = new byte[16];
+                    Array.Copy(derived, 0, aesKey, 0, 32);
+                    Array.Copy(derived, 32, aesIv, 0, 16);
+                    privSection = AesCtr.Transform(aesKey, aesIv, privSection);
+                }
+                finally
+                {
+                    CryptoUtil.Wipe(passBytes);
+                    CryptoUtil.Wipe(derived);
+                    CryptoUtil.Wipe(aesKey);
+                    CryptoUtil.Wipe(aesIv);
+                }
             }
 
             // Build full file
@@ -1065,9 +1166,16 @@ namespace PwSSH.Crypto
                 SshWireFormat.WriteBytes(s, key.Ed25519PublicKey);
                 // 64 bytes: seed (32) + pubkey (32)
                 byte[] combined = new byte[64];
-                Array.Copy(key.Ed25519Seed, 0, combined, 0, 32);
-                Array.Copy(key.Ed25519PublicKey, 0, combined, 32, 32);
-                SshWireFormat.WriteBytes(s, combined);
+                try
+                {
+                    Array.Copy(key.Ed25519Seed, 0, combined, 0, 32);
+                    Array.Copy(key.Ed25519PublicKey, 0, combined, 32, 32);
+                    SshWireFormat.WriteBytes(s, combined);
+                }
+                finally
+                {
+                    CryptoUtil.Wipe(combined);
+                }
             }
             else if (key.KeyType == "ssh-rsa")
             {
@@ -1131,13 +1239,27 @@ namespace PwSSH.Crypto
                         byte[] salt = SshWireFormat.ReadBytes(kdfStream);
                         uint rounds = SshWireFormat.ReadUInt32(kdfStream);
 
-                        byte[] passBytes = Encoding.UTF8.GetBytes(passphrase);
-                        byte[] derived = BcryptPbkdf.DeriveKey(passBytes, salt, (int)rounds, 48);
-                        byte[] aesKey = new byte[32];
-                        byte[] aesIv = new byte[16];
-                        Array.Copy(derived, 0, aesKey, 0, 32);
-                        Array.Copy(derived, 32, aesIv, 0, 16);
-                        privSection = AesCtr.Transform(aesKey, aesIv, privSection);
+                        byte[] passBytes = null;
+                        byte[] derived = null;
+                        byte[] aesKey = null;
+                        byte[] aesIv = null;
+                        try
+                        {
+                            passBytes = Encoding.UTF8.GetBytes(passphrase);
+                            derived = BcryptPbkdf.DeriveKey(passBytes, salt, (int)rounds, 48);
+                            aesKey = new byte[32];
+                            aesIv = new byte[16];
+                            Array.Copy(derived, 0, aesKey, 0, 32);
+                            Array.Copy(derived, 32, aesIv, 0, 16);
+                            privSection = AesCtr.Transform(aesKey, aesIv, privSection);
+                        }
+                        finally
+                        {
+                            CryptoUtil.Wipe(passBytes);
+                            CryptoUtil.Wipe(derived);
+                            CryptoUtil.Wipe(aesKey);
+                            CryptoUtil.Wipe(aesIv);
+                        }
                     }
                 }
 
@@ -1158,8 +1280,15 @@ namespace PwSSH.Crypto
                     {
                         data.Ed25519PublicKey = SshWireFormat.ReadBytes(ps);
                         byte[] combined = SshWireFormat.ReadBytes(ps); // 64 bytes
-                        data.Ed25519Seed = new byte[32];
-                        Array.Copy(combined, 0, data.Ed25519Seed, 0, 32);
+                        try
+                        {
+                            data.Ed25519Seed = new byte[32];
+                            Array.Copy(combined, 0, data.Ed25519Seed, 0, 32);
+                        }
+                        finally
+                        {
+                            CryptoUtil.Wipe(combined);
+                        }
                     }
                     else if (keyType == "ssh-rsa")
                     {

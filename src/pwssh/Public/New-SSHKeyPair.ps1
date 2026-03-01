@@ -101,6 +101,7 @@ function New-SSHKeyPair {
                 }
 
                 $passStr = $null
+                $privContent = $null
                 try {
                     if ($Passphrase) {
                         $passStr = ConvertFrom-SecureStringPlain -SecureString $Passphrase
@@ -108,11 +109,12 @@ function New-SSHKeyPair {
 
                     # Write private key
                     $privContent = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPrivateKeyFile($keyData, $passStr)
+                    [System.IO.File]::WriteAllText($Path, $privContent)
                 }
                 finally {
                     $passStr = $null
+                    $privContent = $null   # Remove reference to PEM text with private key material
                 }
-                [System.IO.File]::WriteAllText($Path, $privContent)
 
                 # Write public key
                 $pubContent = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPublicKeyLine($keyData)

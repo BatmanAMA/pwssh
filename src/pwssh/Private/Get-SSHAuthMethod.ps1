@@ -21,6 +21,7 @@ function Get-SSHAuthMethod {
     if ($KeyFile) {
         $resolvedKey = Resolve-Path -Path $KeyFile -ErrorAction Stop
         if ($KeyPassphrase) {
+            $plain = $null
             $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($KeyPassphrase)
             try {
                 $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
@@ -28,6 +29,8 @@ function Get-SSHAuthMethod {
             }
             finally {
                 [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+                $plain = $null   # Remove managed reference so GC can collect sooner
+                $bstr  = $null
             }
         }
         else {
@@ -38,8 +41,14 @@ function Get-SSHAuthMethod {
 
     # Password auth
     if ($Credential) {
-        $networkCred = $Credential.GetNetworkCredential()
-        $methods.Add([Renci.SshNet.PasswordAuthenticationMethod]::new($networkCred.UserName, $networkCred.Password))
+        $networkCred = $null
+        try {
+            $networkCred = $Credential.GetNetworkCredential()
+            $methods.Add([Renci.SshNet.PasswordAuthenticationMethod]::new($networkCred.UserName, $networkCred.Password))
+        }
+        finally {
+            $networkCred = $null   # Remove reference to NetworkCredential (contains plaintext password)
+        }
     }
 
     if ($methods.Count -eq 0) {
