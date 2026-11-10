@@ -54,20 +54,9 @@ function New-SSHPortForward {
     )
 
     process {
-        Initialize-SSHSessionStore
-
-        $s = switch ($PSCmdlet.ParameterSetName) {
-            'ById' {
-                if ($script:SSHSessions.ContainsKey($SessionId)) { $script:SSHSessions[$SessionId] }
-                else { Write-Error "Session $SessionId not found."; return }
-            }
-            'BySession' { $Session }
-        }
-
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
-            Write-Error "Session $($s.SessionId) is not connected."
-            return
-        }
+        $s = if ($PSCmdlet.ParameterSetName -eq 'ById') { Get-SSHTargetSession -SessionId $SessionId }
+             else { Get-SSHTargetSession -Session $Session }
+        if (-not $s) { return }
 
         if ($Type -ne 'Dynamic' -and -not $RemotePort) {
             Write-Error "RemotePort is required for $Type port forwarding."
@@ -110,7 +99,7 @@ function New-SSHPortForward {
             $forward
         }
         catch {
-            Write-Error "Failed to create port forward: $_"
+            Write-Error "Failed to create port forward: $(Get-SSHErrorMessage $_)"
         }
     }
 }

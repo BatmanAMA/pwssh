@@ -33,22 +33,12 @@ function Get-SFTPChildItem {
     )
 
     process {
-        $s = switch ($PSCmdlet.ParameterSetName) {
-            'ById' {
-                Initialize-SSHSessionStore
-                if ($script:SSHSessions.ContainsKey($SessionId)) { $script:SSHSessions[$SessionId] }
-                else { Write-Error "Session $SessionId not found."; return }
-            }
-            'BySession' { $Session }
-        }
-
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
-            Write-Error "Session $($s.SessionId) is not connected."
-            return
-        }
+        $s = if ($PSCmdlet.ParameterSetName -eq 'ById') { Get-SSHTargetSession -SessionId $SessionId }
+             else { Get-SSHTargetSession -Session $Session }
+        if (-not $s) { return }
 
         try {
-            $sftpClient = $s.GetSftpClient()
+            $sftpClient = Get-SSHSubClient -Session $s -Type Sftp
 
             $listDir = {
                 param($dirPath)
@@ -65,7 +55,7 @@ function Get-SFTPChildItem {
             & $listDir $Path
         }
         catch {
-            Write-Error "SFTP listing failed: $_"
+            Write-Error "SFTP listing failed: $(Get-SSHErrorMessage $_)"
         }
     }
 }

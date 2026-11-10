@@ -3,7 +3,9 @@ function Remove-SSHKnownHost {
     .SYNOPSIS
         Removes entries from the SSH known_hosts file.
     .DESCRIPTION
-        Removes one or more host key entries from the known_hosts file by hostname.
+        Removes every line of the known_hosts file that applies to the given host and
+        port, including hashed entries (like ssh-keygen -R). @revoked and
+        @cert-authority lines are kept. The file is replaced atomically.
     .PARAMETER HostName
         The hostname to remove.
     .PARAMETER Port
@@ -21,6 +23,7 @@ function Remove-SSHKnownHost {
         [string[]]$HostName,
 
         [Parameter()]
+        [ValidateRange(1, 65535)]
         [int]$Port = 22,
 
         [Parameter()]
@@ -39,11 +42,12 @@ function Remove-SSHKnownHost {
     }
 
     end {
-        if (-not (Test-Path $filePath)) {
+        if (-not (Test-Path -LiteralPath $filePath)) {
             Write-Warning "Known hosts file not found: $filePath"
             return
         }
 
+        $specs = $allHostsToRemove | ForEach-Object { [PwSSH.KnownHostsFile]::FormatHost($_, $Port) }
         $lines = [System.IO.File]::ReadAllLines($filePath)
         $newLines = [System.Collections.Generic.List[string]]::new()
         $removed = 0
@@ -51,41 +55,40 @@ function Remove-SSHKnownHost {
         foreach ($line in $lines) {
             $shouldRemove = $false
 
-            if (-not [string]::IsNullOrWhiteSpace($line) -and -not $line.TrimStart().StartsWith('#')) {
-                $parts = $line -split '\s+', 3
-                if ($parts.Count -ge 3) {
-                    $hostEntry = $parts[0]
-                    $parsedHost = $hostEntry
-                    $parsedPort = 22
-                    if ($hostEntry -match '^\[([^\]]+)\]:(\d+)$') {
-                        $parsedHost = $Matches[1]
-                        $parsedPort = [int]$Matches[2]
-                    }
-                    $entryHosts = $parsedHost -split ','
-
-                    foreach ($h in $allHostsToRemove) {
-                        if ($entryHosts -contains $h -and $parsedPort -eq $Port) {
-                            $shouldRemove = $true
-                            break
-                        }
-                    }
+            $entry = [PwSSH.KnownHostsFile]::ParseLine($line)
+            if ($entry -and -not $entry.Marker) {
+                foreach ($spec in $specs) {
+                    if ($entry.MatchesHost($spec)) { $shouldRemove = $true; break }
                 }
             }
 
-            if ($shouldRemove) {
-                if ($PSCmdlet.ShouldProcess($line, 'Remove known host entry')) {
-                    $removed++
-                }
-                else {
-                    $newLines.Add($line)
-                }
+            if ($shouldRemove -and $PSCmdlet.ShouldProcess($line, 'Remove known host entry')) {
+                $removed++
             }
             else {
                 $newLines.Add($line)
             }
         }
 
-        [System.IO.File]::WriteAllLines($filePath, $newLines.ToArray())
+        if ($removed -eq 0) {
+            Write-Verbose "No matching entries in $filePath"
+            return
+        }
+
+        # Write a sibling temp file and swap it in, so a crash cannot truncate known_hosts
+        $tempPath = "$filePath.$([guid]::NewGuid().ToString('N')).tmp"
+        try {
+            $text = if ($newLines.Count) { ($newLines -join "`n") + "`n" } else { '' }
+            [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($false))
+            if (-not (Test-SSHIsWindows)) {
+                & chmod --reference=$filePath $tempPath 2>$null
+                if ($LASTEXITCODE -ne 0) { & chmod 600 $tempPath 2>$null }
+            }
+            [System.IO.File]::Replace($tempPath, $filePath, [NullString]::Value)
+        }
+        finally {
+            if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force }
+        }
         Write-Verbose "Removed $removed entries from $filePath"
     }
 }

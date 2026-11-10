@@ -40,24 +40,14 @@ function Send-SCPFile {
     )
 
     process {
-        $s = switch ($PSCmdlet.ParameterSetName) {
-            'ById' {
-                Initialize-SSHSessionStore
-                if ($script:SSHSessions.ContainsKey($SessionId)) { $script:SSHSessions[$SessionId] }
-                else { Write-Error "Session $SessionId not found."; return }
-            }
-            'BySession' { $Session }
-        }
-
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
-            Write-Error "Session $($s.SessionId) is not connected."
-            return
-        }
-
-        $resolvedPath = Resolve-Path -Path $LocalPath -ErrorAction Stop
+        $s = if ($PSCmdlet.ParameterSetName -eq 'ById') { Get-SSHTargetSession -SessionId $SessionId }
+             else { Get-SSHTargetSession -Session $Session }
+        if (-not $s) { return }
 
         try {
-            $scpClient = $s.GetScpClient()
+            $resolvedPath = Resolve-Path -Path $LocalPath -ErrorAction Stop
+
+            $scpClient = Get-SSHSubClient -Session $s -Type Scp
 
             if (Test-Path $resolvedPath -PathType Container) {
                 if (-not $Recurse) {
@@ -75,7 +65,7 @@ function Send-SCPFile {
             }
         }
         catch {
-            Write-Error "SCP upload failed: $_"
+            Write-Error "SCP upload failed: $(Get-SSHErrorMessage $_)"
         }
     }
 }

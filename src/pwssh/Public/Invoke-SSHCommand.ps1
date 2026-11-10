@@ -62,9 +62,11 @@ function Invoke-SSHCommand {
                 continue
             }
 
-            Write-Verbose "Executing on session $($s.SessionId): $Command"
+            # The command text is deliberately not logged: it may contain secrets.
+            Write-Verbose "Executing command on session $($s.SessionId) ($($s.ComputerName))"
             $startTime = [datetime]::UtcNow
 
+            $sshCmd = $null
             try {
                 $sshCmd = $s.InternalSession.CreateCommand($Command)
                 if ($Timeout -gt 0) {
@@ -78,7 +80,11 @@ function Invoke-SSHCommand {
                 $result.SessionId    = $s.SessionId
                 $result.ComputerName = $s.ComputerName
                 $result.Command      = $Command
-                $result.ExitCode     = $sshCmd.ExitStatus
+                # ExitStatus is null when the command was killed by a signal or the channel
+                # closed without reporting a status; that must not look like success.
+                $exitStatus = $sshCmd.ExitStatus
+                $result.ExitCode     = if ($null -eq $exitStatus) { -1 } else { $exitStatus }
+                if ($sshCmd.PSObject.Properties['ExitSignal']) { $result.ExitSignal = $sshCmd.ExitSignal }
                 $result.Output       = $sshCmd.Result
                 $result.Error        = $sshCmd.Error
                 $result.StartTime    = $startTime
@@ -88,7 +94,7 @@ function Invoke-SSHCommand {
                 $result
             }
             catch {
-                Write-Error "Command execution failed on session $($s.SessionId): $_"
+                Write-Error "Command execution failed on session $($s.SessionId): $(Get-SSHErrorMessage $_)"
             }
             finally {
                 if ($sshCmd) { $sshCmd.Dispose() }

@@ -4,6 +4,26 @@
   <Type>
     <Name>SSHSessionInfo</Name>
     <Members>
+      <ScriptMethod>
+        <Name>Disconnect</Name>
+        <Script>
+          foreach ($name in 'InternalSftpClient', 'InternalScpClient') {
+              $sub = $this.$name
+              if ($sub) {
+                  try { $sub.Disconnect() } catch { }
+                  try { $sub.Dispose() } catch { }
+                  $this.$name = $null
+              }
+          }
+          if ($this.InternalSession -and $this.Connected) {
+              try { $this.InternalSession.Disconnect() }
+              finally {
+                  $this.Connected = $false
+                  try { $this.InternalSession.Dispose() } catch { }
+              }
+          }
+        </Script>
+      </ScriptMethod>
       <ScriptProperty>
         <Name>IsAlive</Name>
         <GetScriptBlock>
@@ -72,6 +92,15 @@
   <Type>
     <Name>SSHPortForward</Name>
     <Members>
+      <ScriptMethod>
+        <Name>Stop</Name>
+        <Script>
+          if ($this.InternalForward -and $this.IsStarted) {
+              $this.InternalForward.Stop()
+              $this.IsStarted = $false
+          }
+        </Script>
+      </ScriptMethod>
       <MemberSet>
         <Name>PSStandardMembers</Name>
         <Members>

@@ -1,11 +1,5 @@
 BeforeAll {
-    # Load crypto engine
-    $initCryptoPath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Private' 'Initialize-SSHCrypto.ps1'
-    . $initCryptoPath
-    Initialize-SSHCrypto
-
-    $publicPath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Public'
-    . (Join-Path $publicPath 'New-SSHKeyPair.ps1')
+    . (Join-Path (Join-Path $PSScriptRoot '..') 'TestHelper.ps1')
 }
 
 Describe 'New-SSHKeyPair' {

@@ -58,12 +58,27 @@ function New-SSHKeyPair {
                 'RSA'     { 'id_rsa' }
                 'ECDSA'   { 'id_ecdsa' }
             }
-            $Path = Join-Path $HOME '.ssh' $keyName
+            $Path = Join-Path (Get-SSHUserDirectory) $keyName
         }
 
+        # .NET resolves relative paths against the process directory, not $PWD
+        $Path = Resolve-SSHLocalPath -Path $Path
         $pubPath = "$Path.pub"
 
-        if ((Test-Path $Path) -and -not $Force) {
+        if ($KeyType -eq 'RSA' -and $KeySize -and ($KeySize -lt 2048 -or $KeySize -gt 16384 -or $KeySize % 8)) {
+            Write-Error 'RSA key size must be a multiple of 8 between 2048 and 16384 bits.'
+            return
+        }
+        if ($KeyType -eq 'ECDSA' -and $KeySize -and $KeySize -notin 256, 384, 521) {
+            Write-Error 'ECDSA key size must be 256, 384 or 521.'
+            return
+        }
+        if ($KeyType -eq 'Ed25519' -and $KeySize -and $KeySize -ne 256) {
+            Write-Error 'Ed25519 keys have a fixed size; omit -KeySize.'
+            return
+        }
+
+        if ((Test-Path -LiteralPath $Path) -and -not $Force) {
             Write-Error "Key file '$Path' already exists. Use -Force to overwrite."
             return
         }
@@ -73,13 +88,14 @@ function New-SSHKeyPair {
             $Comment = "{0}@{1}" -f $userName, ([System.Net.Dns]::GetHostName())
         }
 
-        $parentDir = Split-Path $Path -Parent
-        if ($parentDir -and -not (Test-Path $parentDir)) {
-            New-Item -Path $parentDir -ItemType Directory -Force | Out-Null
-        }
-
         if ($PSCmdlet.ShouldProcess($Path, "Generate $KeyType key")) {
             try {
+                $parentDir = Split-Path $Path -Parent
+                if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
+                    New-Item -Path $parentDir -ItemType Directory -Force | Out-Null
+                    Set-SSHPrivatePermission -LiteralPath $parentDir
+                }
+
                 # Generate key data
                 $keyData = switch ($KeyType) {
                     'Ed25519' {
@@ -107,15 +123,28 @@ function New-SSHKeyPair {
                 finally {
                     $passStr = $null
                 }
-                [System.IO.File]::WriteAllText($Path, $privContent)
+                # Create the private key file empty, restrict it, and only then write the
+                # key, so it is never readable by anyone else. Removing an existing file
+                # first also stops us writing through a symlink or inheriting loose
+                # permissions.
+                if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
+                [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew).Dispose()
+                try {
+                    Set-SSHPrivatePermission -LiteralPath $Path
+                    [System.IO.File]::WriteAllText($Path, $privContent, [System.Text.UTF8Encoding]::new($false))
+                }
+                catch {
+                    Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+                    throw
+                }
+                finally {
+                    $privContent = $null
+                }
 
                 # Write public key
                 $pubContent = [PwSSH.Crypto.OpenSshKeyFormat]::FormatPublicKeyLine($keyData)
-                [System.IO.File]::WriteAllText($pubPath, "$pubContent`n")
-
-                # Set permissions (Unix)
-                if ($IsLinux -or $IsMacOS) {
-                    & chmod 600 $Path 2>$null
+                [System.IO.File]::WriteAllText($pubPath, "$pubContent`n", [System.Text.UTF8Encoding]::new($false))
+                if (-not (Test-SSHIsWindows)) {
                     & chmod 644 $pubPath 2>$null
                 }
 
@@ -135,7 +164,7 @@ function New-SSHKeyPair {
                 }
             }
             catch {
-                Write-Error "Key generation failed: $_"
+                Write-Error "Key generation failed: $(Get-SSHErrorMessage $_)"
             }
         }
     }

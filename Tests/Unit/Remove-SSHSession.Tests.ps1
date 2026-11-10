@@ -1,21 +1,5 @@
 BeforeAll {
-    $classPath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Classes'
-    . (Join-Path $classPath 'SSHHostKey.ps1')
-    . (Join-Path $classPath 'SSHKnownHost.ps1')
-    . (Join-Path $classPath 'SSHCommandResult.ps1')
-    . (Join-Path $classPath 'SSHPortForward.ps1')
-    . (Join-Path $classPath 'SSHSession.ps1')
-
-    $privatePath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Private'
-    . (Join-Path $privatePath 'Initialize-SSHSessionStore.ps1')
-
-    $publicPath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Public'
-    . (Join-Path $publicPath 'Remove-SSHSession.ps1')
-
-    $script:SSHSessions = [System.Collections.Generic.Dictionary[int, SSHSessionInfo]]::new()
-    $script:SSHPortForwards = [System.Collections.Generic.Dictionary[int, SSHPortForward]]::new()
-    $script:NextSessionId = 1
-    $script:NextForwardId = 1
+    . (Join-Path (Join-Path $PSScriptRoot '..') 'TestHelper.ps1')
 }
 
 Describe 'Remove-SSHSession' {

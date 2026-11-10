@@ -40,22 +40,13 @@ function Receive-SCPFile {
     )
 
     process {
-        $s = switch ($PSCmdlet.ParameterSetName) {
-            'ById' {
-                Initialize-SSHSessionStore
-                if ($script:SSHSessions.ContainsKey($SessionId)) { $script:SSHSessions[$SessionId] }
-                else { Write-Error "Session $SessionId not found."; return }
-            }
-            'BySession' { $Session }
-        }
-
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
-            Write-Error "Session $($s.SessionId) is not connected."
-            return
-        }
+        $s = if ($PSCmdlet.ParameterSetName -eq 'ById') { Get-SSHTargetSession -SessionId $SessionId }
+             else { Get-SSHTargetSession -Session $Session }
+        if (-not $s) { return }
 
         try {
-            $scpClient = $s.GetScpClient()
+            $LocalPath = Resolve-SSHLocalPath -Path $LocalPath
+            $scpClient = Get-SSHSubClient -Session $s -Type Scp
 
             if ($Recurse) {
                 $dirInfo = [System.IO.DirectoryInfo]::new($LocalPath)
@@ -65,7 +56,7 @@ function Receive-SCPFile {
             }
             else {
                 $parentDir = Split-Path $LocalPath -Parent
-                if ($parentDir -and -not (Test-Path $parentDir)) {
+                if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
                     New-Item -Path $parentDir -ItemType Directory -Force | Out-Null
                 }
                 $fileInfo = [System.IO.FileInfo]::new($LocalPath)
@@ -74,7 +65,7 @@ function Receive-SCPFile {
             }
         }
         catch {
-            Write-Error "SCP download failed: $_"
+            Write-Error "SCP download failed: $(Get-SSHErrorMessage $_)"
         }
     }
 }

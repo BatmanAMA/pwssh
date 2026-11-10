@@ -28,13 +28,14 @@ function ConvertTo-SSHPublicKey {
     process {
         Initialize-SSHCrypto
 
-        if (-not (Test-Path $Path)) {
+        $fullPath = Resolve-SSHLocalPath -Path $Path
+        if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
             Write-Error "Private key file not found: $Path"
             return
         }
 
         try {
-            $pemText = [System.IO.File]::ReadAllText($Path)
+            $pemText = [System.IO.File]::ReadAllText($fullPath)
 
             $passStr = $null
             try {
@@ -54,11 +55,11 @@ function ConvertTo-SSHPublicKey {
                 PublicKeyLine = $pubLine
                 Comment       = $keyData.Comment
                 Fingerprint   = [PwSSH.Crypto.OpenSshKeyFormat]::Fingerprint($keyData.PublicKeyBlob, 'SHA256')
-                SourceFile    = (Resolve-Path $Path).Path
+                SourceFile    = $fullPath
             }
         }
         catch {
-            Write-Error "Failed to extract public key from '$Path': $_"
+            Write-Error "Failed to extract public key from '$Path': $(Get-SSHErrorMessage $_)"
         }
     }
 }

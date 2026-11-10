@@ -1,5 +1,5 @@
 BeforeAll {
-    . (Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Private' 'ConvertTo-SSHFingerprint.ps1')
+    . (Join-Path (Join-Path $PSScriptRoot '..') 'TestHelper.ps1')
 }
 
 Describe 'ConvertTo-SSHFingerprint' {

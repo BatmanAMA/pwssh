@@ -3,11 +3,18 @@ function Get-SSHKnownHost {
     .SYNOPSIS
         Lists entries from the SSH known_hosts file.
     .DESCRIPTION
-        Parses the OpenSSH known_hosts file and returns SSHKnownHost objects.
+        Parses an OpenSSH known_hosts file and returns SSHKnownHost objects, one per
+        host name on each line. Hashed entries (|1|salt|hash), @revoked and
+        @cert-authority markers, per-host [host]:port syntax and trailing comments
+        are understood.
     .PARAMETER Path
         Path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
     .PARAMETER HostName
-        Filter by hostname (supports wildcards).
+        Return only entries for this host. Wildcards are matched against the host
+        names stored in the file; hashed entries and entries whose stored pattern
+        covers the name (for example *.example.com) are matched the way OpenSSH would.
+    .PARAMETER Port
+        With -HostName, only return entries for this port.
     .EXAMPLE
         Get-SSHKnownHost
     .EXAMPLE
@@ -20,62 +27,63 @@ function Get-SSHKnownHost {
         [string]$Path,
 
         [Parameter(Position = 0)]
-        [string]$HostName
+        [string]$HostName,
+
+        [Parameter()]
+        [ValidateRange(1, 65535)]
+        [int]$Port
     )
 
     process {
         $filePath = Get-SSHKnownHostsPath -Path $Path
 
-        if (-not (Test-Path $filePath)) {
+        if (-not (Test-Path -LiteralPath $filePath)) {
             Write-Verbose "Known hosts file not found: $filePath"
             return
         }
 
-        $lineNum = 0
-        foreach ($line in [System.IO.File]::ReadLines($filePath)) {
-            $lineNum++
+        foreach ($parsed in [PwSSH.KnownHostsFile]::Parse($filePath)) {
+            $fingerprint = if ($parsed.KeyBlob) { [PwSSH.KnownHostsFile]::Sha256Fingerprint($parsed.KeyBlob) } else { '<invalid>' }
 
-            # Skip comments and blank lines
-            if ([string]::IsNullOrWhiteSpace($line) -or $line.TrimStart().StartsWith('#')) { continue }
+            $hostItems = if ($parsed.IsHashed) { @($parsed.HostField) } else { $parsed.HostField -split ',' | Where-Object { $_ } }
 
-            $parts = $line -split '\s+', 3
-            if ($parts.Count -lt 3) { continue }
+            foreach ($item in $hostItems) {
+                $itemHost = $item
+                $itemPort = 22
+                if (-not $parsed.IsHashed -and $item -match '^(!?)\[([^\]]+)\]:(\d+)$') {
+                    $itemHost = $Matches[1] + $Matches[2]
+                    $itemPort = [int]$Matches[3]
+                }
 
-            $hostEntry = $parts[0]
-            $keyType   = $parts[1]
-            $keyData   = $parts[2]
-
-            # Parse host entry — may be [host]:port or just host
-            $parsedHost = $hostEntry
-            $parsedPort = 22
-            if ($hostEntry -match '^\[([^\]]+)\]:(\d+)$') {
-                $parsedHost = $Matches[1]
-                $parsedPort = [int]$Matches[2]
-            }
-
-            # Handle comma-separated hosts
-            $hostNames = $parsedHost -split ','
-
-            foreach ($h in $hostNames) {
-                if ($HostName -and $h -notlike $HostName) { continue }
+                if ($HostName) {
+                    $single = [PwSSH.KnownHostEntry]::new()
+                    $single.HostField = $item
+                    if ($Port) {
+                        $isMatch = $single.MatchesHost([PwSSH.KnownHostsFile]::FormatHost($HostName, $Port))
+                    }
+                    else {
+                        # No port given: match the name on any port
+                        $isMatch = $single.MatchesHost($HostName)
+                        if (-not $isMatch -and -not $parsed.IsHashed) {
+                            $isMatch = ($itemHost -like $HostName) -or
+                                       [PwSSH.KnownHostsFile]::WildcardMatch($itemHost.ToLowerInvariant(), $HostName.ToLowerInvariant())
+                        }
+                    }
+                    if (-not $isMatch) { continue }
+                    if ($parsed.IsHashed -and $Port) { $itemPort = $Port }
+                }
 
                 $entry = [SSHKnownHost]::new()
-                $entry.HostName    = $h
-                $entry.Port        = $parsedPort
-                $entry.KeyType     = $keyType
-                $entry.KeyData     = $keyData
+                $entry.HostName    = $itemHost
+                $entry.Port        = $itemPort
+                $entry.KeyType     = $parsed.KeyType
+                $entry.KeyData     = $parsed.KeyBase64
+                $entry.Fingerprint = $fingerprint
+                $entry.Marker      = $parsed.Marker
+                $entry.Hashed      = $parsed.IsHashed
+                $entry.Comment     = $parsed.Comment
                 $entry.Source      = $filePath
-                $entry.LineNumber  = $lineNum
-
-                # Compute fingerprint
-                try {
-                    $rawBytes = [System.Convert]::FromBase64String($keyData)
-                    $entry.Fingerprint = ConvertTo-SSHFingerprint -KeyData $rawBytes -Algorithm SHA256
-                }
-                catch {
-                    $entry.Fingerprint = '<invalid>'
-                }
-
+                $entry.LineNumber  = $parsed.LineNumber
                 $entry
             }
         }

@@ -1,5 +1,5 @@
 BeforeAll {
-    . (Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Private' 'Get-SSHKnownHostsPath.ps1')
+    . (Join-Path (Join-Path $PSScriptRoot '..') 'TestHelper.ps1')
 }
 
 Describe 'Get-SSHKnownHostsPath' {

@@ -43,21 +43,36 @@ namespace PwSSH.Crypto
                 WriteUInt32(s, 0);
                 return;
             }
-            byte[] raw = v.ToByteArray(); // little-endian, two's complement
-            Array.Reverse(raw); // now big-endian
-            // Strip leading zero bytes (but keep one if needed for sign)
-            int start = 0;
-            while (start < raw.Length - 1 && raw[start] == 0) start++;
-            int len = raw.Length - start;
-            WriteUInt32(s, (uint)len);
-            s.Write(raw, start, len);
+            // BigInteger.ToByteArray() is the minimal little-endian two's complement
+            // encoding, including the 0x00 sign byte when the top bit is set. Reversed,
+            // that is exactly an RFC 4251 mpint, so nothing may be stripped.
+            byte[] raw = v.ToByteArray();
+            Array.Reverse(raw);
+            WriteBytes(s, raw);
+        }
+
+        public static void WriteUtf8String(Stream s, string str)
+        {
+            WriteBytes(s, Encoding.UTF8.GetBytes(str ?? ""));
+        }
+
+        /// <summary>Read exactly count bytes or throw.</summary>
+        public static byte[] ReadExact(Stream s, int count)
+        {
+            byte[] buf = new byte[count];
+            int total = 0;
+            while (total < count)
+            {
+                int n = s.Read(buf, total, count - total);
+                if (n <= 0) throw new InvalidDataException("Unexpected end of data");
+                total += n;
+            }
+            return buf;
         }
 
         public static uint ReadUInt32(Stream s)
         {
-            byte[] buf = new byte[4];
-            int read = s.Read(buf, 0, 4);
-            if (read < 4) throw new InvalidDataException("Unexpected end of data");
+            byte[] buf = ReadExact(s, 4);
             return ((uint)buf[0] << 24) | ((uint)buf[1] << 16) | ((uint)buf[2] << 8) | buf[3];
         }
 
@@ -65,15 +80,19 @@ namespace PwSSH.Crypto
         {
             uint len = ReadUInt32(s);
             if (len > 1048576) throw new InvalidDataException("Data too large");
-            byte[] buf = new byte[len];
-            int read = s.Read(buf, 0, (int)len);
-            if (read < (int)len) throw new InvalidDataException("Unexpected end of data");
-            return buf;
+            if (s.CanSeek && len > s.Length - s.Position)
+                throw new InvalidDataException("Unexpected end of data");
+            return ReadExact(s, (int)len);
         }
 
         public static string ReadString(Stream s)
         {
             return Encoding.ASCII.GetString(ReadBytes(s));
+        }
+
+        public static string ReadUtf8String(Stream s)
+        {
+            return Encoding.UTF8.GetString(ReadBytes(s));
         }
 
         public static BigInteger ReadMPInt(Stream s)
@@ -227,14 +246,16 @@ namespace PwSSH.Crypto
             BigInteger qx = bx, qy = by, qz = BigInteger.One, qt = Mod(bx * by, P);
 
             // Double-and-add (constant-ish time not needed for keygen)
-            int bits = (int)scalar.GetBitLength();
+            // (BigInteger.GetBitLength() needs .NET 5+; leading zero bits only double
+            // the identity point, which is harmless.)
+            int bits = scalar.ToByteArray().Length * 8;
             for (int i = bits - 1; i >= 0; i--)
             {
                 BigInteger nx, ny, nz, nt;
                 PointDouble(x, y, z, t, out nx, out ny, out nz, out nt);
                 x = nx; y = ny; z = nz; t = nt;
 
-                if ((scalar >> i & 1) == 1)
+                if (!((scalar >> i) & BigInteger.One).IsZero)
                 {
                     PointAdd(x, y, z, t, qx, qy, qz, qt, out nx, out ny, out nz, out nt);
                     x = nx; y = ny; z = nz; t = nt;
@@ -579,30 +600,15 @@ namespace PwSSH.Crypto
 
         public void Encipher(ref uint xl, ref uint xr)
         {
-            for (int i = 0; i < 16; i += 2)
+            uint l = xl, r = xr;
+            l ^= _p[0];
+            for (int i = 1; i <= 16; i += 2)
             {
-                xl ^= _p[i];
-                xr ^= F(xl);
-                xr ^= _p[i + 1];
-                xl ^= F(xr);
+                r ^= F(l) ^ _p[i];
+                l ^= F(r) ^ _p[i + 1];
             }
-            xr ^= _p[16];
-            xl ^= _p[17];
-            uint tmp = xl; xl = xr; xr = tmp;
-        }
-
-        public void Decipher(ref uint xl, ref uint xr)
-        {
-            for (int i = 16; i > 0; i -= 2)
-            {
-                xl ^= _p[i + 1];
-                xr ^= F(xl);
-                xr ^= _p[i];
-                xl ^= F(xr);
-            }
-            xr ^= _p[1];
-            xl ^= _p[0];
-            uint tmp = xl; xl = xr; xr = tmp;
+            xl = r ^ _p[17];
+            xr = l;
         }
 
         private uint F(uint x)
@@ -693,6 +699,9 @@ namespace PwSSH.Crypto
         public static byte[] DeriveKey(byte[] password, byte[] salt, int rounds, int keyLength)
         {
             if (rounds < 1) throw new ArgumentException("Rounds must be >= 1");
+            if (password == null || password.Length == 0) throw new ArgumentException("Password must not be empty");
+            if (salt == null || salt.Length == 0) throw new ArgumentException("Salt must not be empty");
+            if (keyLength < 1 || keyLength > 1024) throw new ArgumentException("Invalid key length");
 
             byte[] sha2pass;
             using (var sha = SHA512.Create()) { sha2pass = sha.ComputeHash(password); }
@@ -730,16 +739,14 @@ namespace PwSSH.Crypto
                 Array.Copy(tmpOut, 0, output, (block - 1) * 32, 32);
             }
 
-            // Interleave bytes per OpenSSH convention
+            // OpenSSH interleaves the blocks: key[i * stride + block] = out_block[i],
+            // where stride == numBlocks.
             byte[] result = new byte[keyLength];
-            int stride = numBlocks * 32;
             for (int i = 0; i < keyLength; i++)
             {
-                int srcBlock = i / 32;
-                int srcByte = i % 32;
-                int srcIdx = srcByte * numBlocks + srcBlock;
-                if (srcIdx < output.Length)
-                    result[i] = output[srcIdx];
+                int srcBlock = i % numBlocks;
+                int srcByte = i / numBlocks;
+                result[i] = output[srcBlock * 32 + srcByte];
             }
             return result;
         }
@@ -771,14 +778,14 @@ namespace PwSSH.Crypto
                 }
             }
 
-            // Output 32 bytes (big-endian)
+            // Output 32 bytes. OpenSSH's bcrypt_hash copies each word out little-endian.
             byte[] result = new byte[32];
             for (int i = 0; i < 8; i++)
             {
-                result[i * 4] = (byte)(cdata[i] >> 24);
-                result[i * 4 + 1] = (byte)(cdata[i] >> 16);
-                result[i * 4 + 2] = (byte)(cdata[i] >> 8);
-                result[i * 4 + 3] = (byte)cdata[i];
+                result[i * 4 + 3] = (byte)(cdata[i] >> 24);
+                result[i * 4 + 2] = (byte)(cdata[i] >> 16);
+                result[i * 4 + 1] = (byte)(cdata[i] >> 8);
+                result[i * 4] = (byte)cdata[i];
             }
             return result;
         }
@@ -882,8 +889,12 @@ namespace PwSSH.Crypto
 
         public static SshKeyData GenerateRsa(int bits, string comment)
         {
-            using (var rsa = RSA.Create(bits))
+            if (bits < 2048 || bits > 16384 || bits % 8 != 0)
+                throw new ArgumentException("RSA key size must be a multiple of 8 between 2048 and 16384 bits.");
+
+            using (var rsa = RSA.Create())
             {
+                rsa.KeySize = bits;
                 var p = rsa.ExportParameters(true);
                 var data = new SshKeyData();
                 data.KeyType = "ssh-rsa";
@@ -919,11 +930,13 @@ namespace PwSSH.Crypto
                     keyTypeName = "ecdsa-sha2-nistp521";
                     curve = ECCurve.NamedCurves.nistP521;
                     break;
-                default: // 256
+                case 256:
                     curveName = "nistp256";
                     keyTypeName = "ecdsa-sha2-nistp256";
                     curve = ECCurve.NamedCurves.nistP256;
                     break;
+                default:
+                    throw new ArgumentException("ECDSA key size must be 256, 384 or 521.");
             }
 
             using (var ecdsa = ECDsa.Create(curve))
@@ -959,6 +972,8 @@ namespace PwSSH.Crypto
         public static string FormatPublicKeyLine(SshKeyData key)
         {
             string b64 = Convert.ToBase64String(key.PublicKeyBlob);
+            if (String.IsNullOrEmpty(key.Comment))
+                return String.Format("{0} {1}", key.KeyType, b64);
             return String.Format("{0} {1} {2}", key.KeyType, b64, key.Comment);
         }
 
@@ -1002,7 +1017,7 @@ namespace PwSSH.Crypto
                 SshWireFormat.WriteUInt32(ms, check);
 
                 WritePrivateKeyData(ms, key);
-                SshWireFormat.WriteString(ms, key.Comment);
+                SshWireFormat.WriteUtf8String(ms, key.Comment);
 
                 // Padding: 1, 2, 3, 4, 5, 6, 7, ...
                 int blockSize = encrypt ? 16 : 8;
@@ -1024,6 +1039,9 @@ namespace PwSSH.Crypto
                 Array.Copy(derived, 0, aesKey, 0, 32);
                 Array.Copy(derived, 32, aesIv, 0, 16);
                 privSection = AesCtr.Transform(aesKey, aesIv, privSection);
+                Array.Clear(passBytes, 0, passBytes.Length);
+                Array.Clear(derived, 0, derived.Length);
+                Array.Clear(aesKey, 0, aesKey.Length);
             }
 
             // Build full file
@@ -1046,14 +1064,14 @@ namespace PwSSH.Crypto
 
             // PEM wrap
             var sb = new StringBuilder();
-            sb.AppendLine("-----BEGIN OPENSSH PRIVATE KEY-----");
+            sb.Append("-----BEGIN OPENSSH PRIVATE KEY-----").Append((char)10);
             string b64 = Convert.ToBase64String(fileBytes);
             for (int i = 0; i < b64.Length; i += 70)
             {
                 int len = Math.Min(70, b64.Length - i);
-                sb.AppendLine(b64.Substring(i, len));
+                sb.Append(b64.Substring(i, len)).Append((char)10);
             }
-            sb.AppendLine("-----END OPENSSH PRIVATE KEY-----");
+            sb.Append("-----END OPENSSH PRIVATE KEY-----").Append((char)10);
             return sb.ToString();
         }
 
@@ -1087,35 +1105,83 @@ namespace PwSSH.Crypto
                 SshWireFormat.WriteBytes(s, key.EcPublicPoint);
                 SshWireFormat.WriteMPInt(s, new BigInteger(ReverseAndPad(key.EcPrivateKey)));
             }
+            else
+            {
+                throw new NotSupportedException("Unsupported key type: " + key.KeyType);
+            }
         }
 
         // ---- Parsing ----
 
+        /// <summary>Upper bound on bcrypt_pbkdf rounds accepted from a key file.</summary>
+        public const int MaxKdfRounds = 5000;
+
+        private const string PEM_BEGIN = "-----BEGIN OPENSSH PRIVATE KEY-----";
+        private const string PEM_END = "-----END OPENSSH PRIVATE KEY-----";
+
+        private static byte[] DecodePem(string pemText)
+        {
+            if (pemText == null) throw new ArgumentNullException("pemText");
+            int begin = pemText.IndexOf(PEM_BEGIN, StringComparison.Ordinal);
+            int end = pemText.IndexOf(PEM_END, StringComparison.Ordinal);
+            if (begin < 0 || end < begin)
+                throw new InvalidDataException("Not an OpenSSH private key file.");
+            string body = pemText.Substring(begin + PEM_BEGIN.Length, end - begin - PEM_BEGIN.Length);
+            var sb = new StringBuilder(body.Length);
+            foreach (char c in body)
+            {
+                if (!Char.IsWhiteSpace(c)) sb.Append(c);
+            }
+            try { return Convert.FromBase64String(sb.ToString()); }
+            catch (FormatException) { throw new InvalidDataException("Not an OpenSSH private key file (bad base64)."); }
+        }
+
+        /// <summary>Returns the cipher name of an OpenSSH private key ("none" if unencrypted).</summary>
+        public static string GetCipherName(string pemText)
+        {
+            using (var ms = new MemoryStream(DecodePem(pemText)))
+            {
+                ReadMagic(ms);
+                return SshWireFormat.ReadString(ms);
+            }
+        }
+
+        private static void ReadMagic(Stream ms)
+        {
+            byte[] magicBuf;
+            try { magicBuf = SshWireFormat.ReadExact(ms, AUTH_MAGIC.Length + 1); }
+            catch (InvalidDataException) { throw new InvalidDataException("Not an OpenSSH private key file."); }
+            string magic = Encoding.ASCII.GetString(magicBuf, 0, AUTH_MAGIC.Length);
+            if (magic != AUTH_MAGIC || magicBuf[AUTH_MAGIC.Length] != 0)
+                throw new InvalidDataException("Not an OpenSSH private key file.");
+        }
+
+        private static bool BytesEqual(byte[] a, byte[] b)
+        {
+            if (a == null || b == null || a.Length != b.Length) return false;
+            int diff = 0;
+            for (int i = 0; i < a.Length; i++) diff |= a[i] ^ b[i];
+            return diff == 0;
+        }
+
         public static SshKeyData ParsePrivateKeyFile(string pemText, string passphrase)
         {
-            // Strip PEM headers
-            string b64 = pemText
-                .Replace("-----BEGIN OPENSSH PRIVATE KEY-----", "")
-                .Replace("-----END OPENSSH PRIVATE KEY-----", "")
-                .Replace("\r", "").Replace("\n", "").Trim();
-
-            byte[] raw = Convert.FromBase64String(b64);
+            byte[] raw = DecodePem(pemText);
 
             using (var ms = new MemoryStream(raw))
             {
-                // Verify magic
-                byte[] magicBuf = new byte[AUTH_MAGIC.Length + 1];
-                ms.Read(magicBuf, 0, magicBuf.Length);
-                string magic = Encoding.ASCII.GetString(magicBuf, 0, AUTH_MAGIC.Length);
-                if (magic != AUTH_MAGIC || magicBuf[AUTH_MAGIC.Length] != 0)
-                    throw new InvalidDataException("Not an OpenSSH private key file.");
+                ReadMagic(ms);
 
                 string cipherName = SshWireFormat.ReadString(ms);
                 string kdfName = SshWireFormat.ReadString(ms);
                 byte[] kdfOptions = SshWireFormat.ReadBytes(ms);
                 uint numKeys = SshWireFormat.ReadUInt32(ms);
+                if (numKeys != 1)
+                    throw new NotSupportedException("Only single-key OpenSSH private key files are supported.");
                 byte[] pubBlob = SshWireFormat.ReadBytes(ms);
                 byte[] privSection = SshWireFormat.ReadBytes(ms);
+
+                int blockSize = 8;
 
                 // Decrypt if needed
                 if (cipherName != CIPHER_NONE)
@@ -1125,11 +1191,17 @@ namespace PwSSH.Crypto
 
                     if (cipherName != CIPHER_AES256CTR)
                         throw new NotSupportedException("Unsupported cipher: " + cipherName);
+                    if (kdfName != KDF_BCRYPT)
+                        throw new NotSupportedException("Unsupported KDF: " + kdfName);
+
+                    blockSize = 16;
 
                     using (var kdfStream = new MemoryStream(kdfOptions))
                     {
                         byte[] salt = SshWireFormat.ReadBytes(kdfStream);
                         uint rounds = SshWireFormat.ReadUInt32(kdfStream);
+                        if (salt.Length == 0 || rounds < 1 || rounds > MaxKdfRounds)
+                            throw new InvalidDataException("Unsupported KDF parameters (rounds=" + rounds + ").");
 
                         byte[] passBytes = Encoding.UTF8.GetBytes(passphrase);
                         byte[] derived = BcryptPbkdf.DeriveKey(passBytes, salt, (int)rounds, 48);
@@ -1138,8 +1210,18 @@ namespace PwSSH.Crypto
                         Array.Copy(derived, 0, aesKey, 0, 32);
                         Array.Copy(derived, 32, aesIv, 0, 16);
                         privSection = AesCtr.Transform(aesKey, aesIv, privSection);
+                        Array.Clear(passBytes, 0, passBytes.Length);
+                        Array.Clear(derived, 0, derived.Length);
+                        Array.Clear(aesKey, 0, aesKey.Length);
                     }
                 }
+                else if (kdfName != KDF_NONE)
+                {
+                    throw new InvalidDataException("Unencrypted key declares a KDF.");
+                }
+
+                if (privSection.Length < 8 || privSection.Length % blockSize != 0)
+                    throw new InvalidDataException("Corrupted private key section.");
 
                 // Parse private section
                 using (var ps = new MemoryStream(privSection))
@@ -1154,12 +1236,23 @@ namespace PwSSH.Crypto
                     data.KeyType = keyType;
                     data.PublicKeyBlob = pubBlob;
 
+                    byte[] innerPubBlob;
+
                     if (keyType == "ssh-ed25519")
                     {
                         data.Ed25519PublicKey = SshWireFormat.ReadBytes(ps);
-                        byte[] combined = SshWireFormat.ReadBytes(ps); // 64 bytes
+                        byte[] combined = SshWireFormat.ReadBytes(ps); // seed (32) + public (32)
+                        if (data.Ed25519PublicKey.Length != 32 || combined.Length != 64)
+                            throw new InvalidDataException("Malformed Ed25519 private key.");
                         data.Ed25519Seed = new byte[32];
                         Array.Copy(combined, 0, data.Ed25519Seed, 0, 32);
+
+                        using (var pb = new MemoryStream())
+                        {
+                            SshWireFormat.WriteString(pb, keyType);
+                            SshWireFormat.WriteBytes(pb, data.Ed25519PublicKey);
+                            innerPubBlob = pb.ToArray();
+                        }
                     }
                     else if (keyType == "ssh-rsa")
                     {
@@ -1169,28 +1262,72 @@ namespace PwSSH.Crypto
                         BigInteger iqmp = SshWireFormat.ReadMPInt(ps);
                         BigInteger p = SshWireFormat.ReadMPInt(ps);
                         BigInteger q = SshWireFormat.ReadMPInt(ps);
+                        if (n.Sign <= 0 || e.Sign <= 0 || d.Sign <= 0 || p <= BigInteger.One || q <= BigInteger.One)
+                            throw new InvalidDataException("Malformed RSA private key.");
 
+                        // RSAParameters requires fixed-width fields: D matches the modulus,
+                        // the CRT values are half that.
+                        byte[] modulus = ToBigEndianBytes(n);
+                        int half = (modulus.Length + 1) / 2;
                         var rp = new RSAParameters();
-                        rp.Modulus = ToBigEndianBytes(n);
+                        rp.Modulus = modulus;
                         rp.Exponent = ToBigEndianBytes(e);
-                        rp.D = ToBigEndianBytes(d);
-                        rp.InverseQ = ToBigEndianBytes(iqmp);
-                        rp.P = ToBigEndianBytes(p);
-                        rp.Q = ToBigEndianBytes(q);
-                        // Compute DP and DQ
-                        rp.DP = ToBigEndianBytes(BigInteger.Remainder(d, p - 1));
-                        rp.DQ = ToBigEndianBytes(BigInteger.Remainder(d, q - 1));
+                        rp.D = ToFixedBigEndian(d, modulus.Length);
+                        rp.InverseQ = ToFixedBigEndian(iqmp, half);
+                        rp.P = ToFixedBigEndian(p, half);
+                        rp.Q = ToFixedBigEndian(q, half);
+                        rp.DP = ToFixedBigEndian(BigInteger.Remainder(d, p - 1), half);
+                        rp.DQ = ToFixedBigEndian(BigInteger.Remainder(d, q - 1), half);
                         data.RsaParameters = rp;
+
+                        using (var pb = new MemoryStream())
+                        {
+                            SshWireFormat.WriteString(pb, keyType);
+                            SshWireFormat.WriteMPInt(pb, e);
+                            SshWireFormat.WriteMPInt(pb, n);
+                            innerPubBlob = pb.ToArray();
+                        }
                     }
-                    else if (keyType.StartsWith("ecdsa-sha2-"))
+                    else if (keyType == "ecdsa-sha2-nistp256" || keyType == "ecdsa-sha2-nistp384" ||
+                             keyType == "ecdsa-sha2-nistp521")
                     {
                         data.EcCurveName = SshWireFormat.ReadString(ps);
                         data.EcPublicPoint = SshWireFormat.ReadBytes(ps);
                         BigInteger privScalar = SshWireFormat.ReadMPInt(ps);
-                        data.EcPrivateKey = ToBigEndianBytes(privScalar);
+                        if (privScalar.Sign <= 0)
+                            throw new InvalidDataException("Malformed ECDSA private key.");
+                        int fieldLen = (data.EcPublicPoint.Length - 1) / 2;
+                        data.EcPrivateKey = ToFixedBigEndian(privScalar, fieldLen);
+
+                        using (var pb = new MemoryStream())
+                        {
+                            SshWireFormat.WriteString(pb, keyType);
+                            SshWireFormat.WriteString(pb, data.EcCurveName);
+                            SshWireFormat.WriteBytes(pb, data.EcPublicPoint);
+                            innerPubBlob = pb.ToArray();
+                        }
+                    }
+                    else
+                    {
+                        throw new NotSupportedException("Unsupported key type: " + keyType);
                     }
 
-                    data.Comment = SshWireFormat.ReadString(ps);
+                    // The public key stored in the clear must be the one the private section holds.
+                    if (!BytesEqual(innerPubBlob, pubBlob))
+                        throw new InvalidDataException("Public and private sections of the key file do not match.");
+
+                    data.Comment = SshWireFormat.ReadUtf8String(ps);
+
+                    // Remaining bytes must be the deterministic padding 1, 2, 3, ...
+                    int pad = 1;
+                    int bVal;
+                    while ((bVal = ps.ReadByte()) >= 0)
+                    {
+                        if (pad > blockSize || bVal != (pad & 0xFF))
+                            throw new InvalidDataException("Corrupted private key padding.");
+                        pad++;
+                    }
+
                     return data;
                 }
             }
@@ -1206,12 +1343,14 @@ namespace PwSSH.Crypto
             var data = new SshKeyData();
             data.KeyType = parts[0];
             data.PublicKeyBlob = Convert.FromBase64String(parts[1]);
-            data.Comment = parts.Length > 2 ? parts[2] : "";
+            data.Comment = parts.Length > 2 ? parts[2].Trim() : "";
 
             // Parse the blob to extract key-type-specific fields
             using (var ms = new MemoryStream(data.PublicKeyBlob))
             {
                 string blobType = SshWireFormat.ReadString(ms);
+                if (blobType != data.KeyType)
+                    throw new FormatException("Key type does not match the key data.");
                 if (blobType == "ssh-ed25519")
                 {
                     data.Ed25519PublicKey = SshWireFormat.ReadBytes(ms);
@@ -1272,6 +1411,17 @@ namespace PwSSH.Crypto
             for (int i = 0; i < bigEndian.Length; i++)
                 le[bigEndian.Length - 1 - i] = bigEndian[i];
             return le;
+        }
+
+        /// <summary>Convert a non-negative BigInteger to a big-endian array of exactly size bytes.</summary>
+        private static byte[] ToFixedBigEndian(BigInteger v, int size)
+        {
+            byte[] be = ToBigEndianBytes(v);
+            if (be.Length == size) return be;
+            if (be.Length > size) throw new InvalidDataException("Key component is larger than expected.");
+            byte[] padded = new byte[size];
+            Array.Copy(be, 0, padded, size - be.Length, be.Length);
+            return padded;
         }
 
         /// <summary>Convert BigInteger to big-endian byte array (no sign byte).</summary>

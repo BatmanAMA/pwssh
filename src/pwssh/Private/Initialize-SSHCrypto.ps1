@@ -1,65 +1,44 @@
 function Initialize-SSHCrypto {
     <#
     .SYNOPSIS
-        Loads the PwSSH.Crypto C# types via Add-Type.
-        Idempotent — skips if already loaded.
+        Compiles and loads the module's C# types (key handling, known_hosts,
+        host key verification and the output classes). Idempotent.
     #>
     [CmdletBinding()]
     param()
 
-    if ([System.Management.Automation.PSTypeName]'PwSSH.Crypto.Ed25519' -as [type]) {
-        Write-Verbose 'PwSSH.Crypto types already loaded.'
+    if (('PwSSH.Crypto.Ed25519' -as [type]) -and ('PwSSH.HostKeyVerifier' -as [type])) {
+        Write-Verbose 'pwssh C# types already loaded.'
         return
     }
 
-    $csPath = Join-Path $PSScriptRoot 'CSharp' 'SSHCrypto.cs'
-    if (-not (Test-Path $csPath)) {
-        throw "Cannot find SSHCrypto.cs at $csPath"
-    }
-
-    $csSource = [System.IO.File]::ReadAllText($csPath)
-
-    # Build referenced assemblies list (differs between Desktop and Core)
-    $refs = [System.Collections.Generic.List[string]]::new()
-
-    if ($PSVersionTable.PSEdition -eq 'Desktop') {
-        # .NET Framework — need explicit reference to System.Numerics.dll
-        $refs.Add('System.Numerics')
-    }
-    else {
-        # .NET Core / .NET 5+ — find System.Runtime.Numerics assembly
-        $numAssembly = [System.Numerics.BigInteger].Assembly.Location
-        if ($numAssembly) { $refs.Add($numAssembly) }
-
-        # Also need System.Security.Cryptography assemblies
-        $cryptoAssemblies = @(
-            [System.Security.Cryptography.SHA512].Assembly.Location,
-            [System.Security.Cryptography.RSA].Assembly.Location,
-            [System.Security.Cryptography.ECDsa].Assembly.Location,
-            [System.Security.Cryptography.Aes].Assembly.Location,
-            [System.Security.Cryptography.RandomNumberGenerator].Assembly.Location
-        ) | Where-Object { $_ } | Select-Object -Unique
-
-        foreach ($a in $cryptoAssemblies) {
-            $refs.Add($a)
+    $csDir = Join-Path $PSScriptRoot 'CSharp'
+    $sources = @(
+        (Join-Path $csDir 'SSHCrypto.cs')
+        (Join-Path $csDir 'SSHTypes.cs')
+    )
+    foreach ($src in $sources) {
+        if (-not (Test-Path -LiteralPath $src)) {
+            throw "Cannot find $src"
         }
     }
 
     $params = @{
-        TypeDefinition       = $csSource
-        Language              = 'CSharp'
-        ErrorAction           = 'Stop'
+        LiteralPath = $sources
+        ErrorAction = 'Stop'
     }
 
-    if ($refs.Count -gt 0) {
-        $params['ReferencedAssemblies'] = $refs.ToArray()
+    if ($PSVersionTable.PSEdition -eq 'Desktop') {
+        # .NET Framework: BigInteger and the CNG/ECC types live in separate assemblies.
+        # (PowerShell 7 references the whole .NET reference set by default.)
+        $params['ReferencedAssemblies'] = @('System.Numerics', 'System.Core')
     }
 
     try {
         Add-Type @params
-        Write-Verbose 'PwSSH.Crypto types compiled and loaded.'
+        Write-Verbose 'pwssh C# types compiled and loaded.'
     }
     catch {
-        throw "Failed to compile PwSSH.Crypto: $_"
+        throw "Failed to compile the pwssh C# types: $_"
     }
 }

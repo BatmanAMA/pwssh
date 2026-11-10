@@ -1,18 +1,35 @@
 function Get-SSHKnownHostsPath {
     <#
     .SYNOPSIS
-        Returns the default known_hosts file path.
+        Returns the known_hosts file to use: the given path, or ~/.ssh/known_hosts.
+    .PARAMETER Path
+        An explicit known_hosts path (relative paths and ~ are resolved).
+    .PARAMETER All
+        Return every file that is consulted when verifying a host key, in order:
+        the user files followed by the system-wide ones. With -Path, only that file.
     #>
     [CmdletBinding()]
     param(
-        [string]$Path
+        [string]$Path,
+
+        [switch]$All
     )
 
-    if ($Path) { return $Path }
+    if ($Path) { return (Resolve-SSHLocalPath -Path $Path) }
 
-    $sshDir = Join-Path $HOME '.ssh'
-    if (-not (Test-Path $sshDir)) {
-        New-Item -Path $sshDir -ItemType Directory -Force | Out-Null
+    $sshDir = Get-SSHUserDirectory -Create
+    $userFile = Join-Path $sshDir 'known_hosts'
+    if (-not $All) { return $userFile }
+
+    $globalDir = if (Test-SSHIsWindows) {
+        if ($env:ProgramData) { Join-Path $env:ProgramData 'ssh' } else { $null }
     }
-    return Join-Path $sshDir 'known_hosts'
+    else { '/etc/ssh' }
+
+    $paths = @($userFile, (Join-Path $sshDir 'known_hosts2'))
+    if ($globalDir) {
+        $paths += (Join-Path $globalDir 'ssh_known_hosts')
+        $paths += (Join-Path $globalDir 'ssh_known_hosts2')
+    }
+    return $paths
 }

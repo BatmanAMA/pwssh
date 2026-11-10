@@ -33,13 +33,14 @@ function Get-SSHKeyFingerprint {
     process {
         Initialize-SSHCrypto
 
-        if (-not (Test-Path $Path)) {
+        $fullPath = Resolve-SSHLocalPath -Path $Path
+        if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
             Write-Error "Key file not found: $Path"
             return
         }
 
         try {
-            $content = [System.IO.File]::ReadAllText($Path).Trim()
+            $content = [System.IO.File]::ReadAllText($fullPath).Trim()
             $keyData = $null
 
             if ($content.StartsWith('-----BEGIN OPENSSH PRIVATE KEY-----')) {
@@ -78,11 +79,11 @@ function Get-SSHKeyFingerprint {
                 Fingerprint = $fp
                 Comment     = $keyData.Comment
                 KeyType     = $keyData.KeyType
-                SourceFile  = (Resolve-Path $Path).Path
+                SourceFile  = $fullPath
             }
         }
         catch {
-            Write-Error "Failed to read key file '$Path': $_"
+            Write-Error "Failed to read key file '$Path': $(Get-SSHErrorMessage $_)"
         }
     }
 }

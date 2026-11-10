@@ -6,91 +6,112 @@ on:
   pull_request:
     branches: [ main ]
 
+# The workflow only reads the repository; nothing here needs a write token.
+permissions:
+  contents: read
+
 jobs:
-  test:
-    name: Test PS ${{ matrix.pwsh-version }} on ${{ matrix.os }}
+  unit:
+    name: Unit (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Windows PowerShell 5.1 (built-in on Windows)
-          - os: windows-latest
-            pwsh-version: '5.1'
+          # Windows PowerShell 5.1 (.NET Framework)
+          - name: Windows PowerShell 5.1
+            os: windows-latest
             shell: powershell
-
-          # PowerShell 7.4 on Windows
-          - os: windows-latest
-            pwsh-version: '7.4'
+          # PowerShell 7 as preinstalled on the runner images
+          - name: PowerShell 7 on Windows
+            os: windows-latest
+            shell: pwsh
+          - name: PowerShell 7 on Ubuntu
+            os: ubuntu-latest
+            shell: pwsh
+          - name: PowerShell 7 on macOS
+            os: macos-latest
             shell: pwsh
 
-          # PowerShell 7.5 on Windows
-          - os: windows-latest
-            pwsh-version: '7.5'
-            shell: pwsh
-
-          # PowerShell 7.4 on Ubuntu
-          - os: ubuntu-latest
-            pwsh-version: '7.4'
-            shell: pwsh
-
-          # PowerShell 7.5 on Ubuntu
-          - os: ubuntu-latest
-            pwsh-version: '7.5'
-            shell: pwsh
-
-          # PowerShell 7.4 on macOS
-          - os: macos-latest
-            pwsh-version: '7.4'
-            shell: pwsh
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install PowerShell ${{ matrix.pwsh-version }}
-        if: matrix.pwsh-version != '5.1'
-        uses: bjompen/UpdatePWSHAction@v1.0.0
         with:
-          ReleaseVersion: ${{ matrix.pwsh-version }}
+          persist-credentials: false
 
-      - name: Install Pester
-        shell: ${{ matrix.shell }}
+      - name: Show PowerShell version
+        run: $PSVersionTable | Out-String
+
+      # Downloads the hash-pinned dependencies, stages ./output and runs Tests/Unit
+      - name: Build and run unit tests
+        run: ./build.ps1 -Task Test
+
+      # Import the staged module exactly as a user would and make sure SSH.NET
+      # and its dependencies load on this edition.
+      - name: Import built module
         run: |
-          Set-PSRepository PSGallery -InstallationPolicy Trusted
-          Install-Module -Name Pester -MinimumVersion 5.0.0 -Force -Scope CurrentUser
-
-      - name: Run unit tests
-        shell: ${{ matrix.shell }}
-        run: |
-          $config = New-PesterConfiguration
-          $config.Run.Path = './Tests/Unit'
-          $config.Run.PassThru = $true
-          $config.Output.Verbosity = 'Detailed'
-          $config.TestResult.Enabled = $true
-          $config.TestResult.OutputPath = './TestResults/testResults.xml'
-          $config.TestResult.OutputFormat = 'NUnitXml'
-
-          $result = Invoke-Pester -Configuration $config
-
-          if ($result.FailedCount -gt 0) {
-              throw "$($result.FailedCount) test(s) failed"
-          }
+          $ErrorActionPreference = 'Stop'
+          Import-Module ./output/pwssh/pwssh.psd1 -Force
+          if (-not ('Renci.SshNet.SshClient' -as [type])) { throw 'SSH.NET did not load' }
+          # Touch a type that needs BouncyCastle, so a missing dependency fails here
+          $null = [Renci.SshNet.ConnectionInfo]::new('localhost', 22, 'u',
+              [Renci.SshNet.AuthenticationMethod[]]@([Renci.SshNet.NoneAuthenticationMethod]::new('u')))
+          $dir = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
+          $key = New-SSHKeyPair -Path (Join-Path $dir 'id_smoke') -Comment 'ci smoke'
+          if (-not (Test-SSHKeyFile -Path $key.PrivateKeyPath).Valid) { throw 'generated key did not validate' }
+          "Loaded $((Get-Command -Module pwssh).Count) commands; key $($key.Fingerprint)"
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.os }}-ps${{ matrix.pwsh-version }}
+          name: unit-results-${{ matrix.os }}-${{ matrix.shell }}
           path: TestResults/
 
-  build:
-    name: Build module
+  integration:
+    name: Integration (OpenSSH server)
     runs-on: ubuntu-latest
-    needs: test
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install OpenSSH server
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openssh-server openssh-client
+          sudo mkdir -p /run/sshd
+
+      # Starts a private sshd on a loopback port as the runner user and drives the
+      # built module against it (see Tests/Integration).
+      - name: Build and run integration tests
+        run: ./build.ps1 -Task Integration
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-results
+          path: TestResults/
+
+  package:
+    name: Package module
+    runs-on: ubuntu-latest
+    needs: [ unit, integration ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Build
         shell: pwsh

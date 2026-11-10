@@ -39,24 +39,14 @@ function Send-SFTPFile {
     )
 
     process {
-        $s = switch ($PSCmdlet.ParameterSetName) {
-            'ById' {
-                Initialize-SSHSessionStore
-                if ($script:SSHSessions.ContainsKey($SessionId)) { $script:SSHSessions[$SessionId] }
-                else { Write-Error "Session $SessionId not found."; return }
-            }
-            'BySession' { $Session }
-        }
-
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
-            Write-Error "Session $($s.SessionId) is not connected."
-            return
-        }
-
-        $resolvedPath = Resolve-Path -Path $LocalPath -ErrorAction Stop
+        $s = if ($PSCmdlet.ParameterSetName -eq 'ById') { Get-SSHTargetSession -SessionId $SessionId }
+             else { Get-SSHTargetSession -Session $Session }
+        if (-not $s) { return }
 
         try {
-            $sftpClient = $s.GetSftpClient()
+            $resolvedPath = Resolve-Path -Path $LocalPath -ErrorAction Stop
+
+            $sftpClient = Get-SSHSubClient -Session $s -Type Sftp
 
             $stream = [System.IO.File]::OpenRead($resolvedPath.Path)
             try {
@@ -68,7 +58,7 @@ function Send-SFTPFile {
             }
         }
         catch {
-            Write-Error "SFTP upload failed: $_"
+            Write-Error "SFTP upload failed: $(Get-SSHErrorMessage $_)"
         }
     }
 }

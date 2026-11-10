@@ -38,44 +38,43 @@ function Receive-SFTPFile {
     )
 
     process {
-        $s = switch ($PSCmdlet.ParameterSetName) {
-            'ById' {
-                Initialize-SSHSessionStore
-                if ($script:SSHSessions.ContainsKey($SessionId)) { $script:SSHSessions[$SessionId] }
-                else { Write-Error "Session $SessionId not found."; return }
-            }
-            'BySession' { $Session }
-        }
+        $s = if ($PSCmdlet.ParameterSetName -eq 'ById') { Get-SSHTargetSession -SessionId $SessionId }
+             else { Get-SSHTargetSession -Session $Session }
+        if (-not $s) { return }
 
-        if (-not $s.Connected -or -not $s.InternalSession.IsConnected) {
-            Write-Error "Session $($s.SessionId) is not connected."
-            return
-        }
+        $LocalPath = Resolve-SSHLocalPath -Path $LocalPath
 
-        if ((Test-Path $LocalPath) -and -not $Overwrite) {
+        if ((Test-Path -LiteralPath $LocalPath) -and -not $Overwrite) {
             Write-Error "Local file '$LocalPath' already exists. Use -Overwrite to replace it."
             return
         }
 
         $parentDir = Split-Path $LocalPath -Parent
-        if ($parentDir -and -not (Test-Path $parentDir)) {
+        if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
             New-Item -Path $parentDir -ItemType Directory -Force | Out-Null
         }
 
         try {
-            $sftpClient = $s.GetSftpClient()
+            $sftpClient = Get-SSHSubClient -Session $s -Type Sftp
 
-            $stream = [System.IO.File]::Create($LocalPath)
+            # Download to a temporary sibling so a failed transfer never leaves a
+            # truncated file (or destroys the file being overwritten).
+            $tempPath = "$LocalPath.$([guid]::NewGuid().ToString('N')).part"
             try {
-                $sftpClient.DownloadFile($RemotePath, $stream)
+                $stream = [System.IO.File]::Create($tempPath)
+                try { $sftpClient.DownloadFile($RemotePath, $stream) }
+                finally { $stream.Dispose() }
+
+                if (Test-Path -LiteralPath $LocalPath) { Remove-Item -LiteralPath $LocalPath -Force }
+                [System.IO.File]::Move($tempPath, $LocalPath)
                 Write-Verbose "Downloaded $($s.ComputerName):$RemotePath to $LocalPath via SFTP"
             }
             finally {
-                $stream.Dispose()
+                if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force }
             }
         }
         catch {
-            Write-Error "SFTP download failed: $_"
+            Write-Error "SFTP download failed: $(Get-SSHErrorMessage $_)"
         }
     }
 }

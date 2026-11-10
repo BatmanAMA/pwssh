@@ -1,15 +1,5 @@
 BeforeAll {
-    # Load crypto engine
-    $initCryptoPath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Private' 'Initialize-SSHCrypto.ps1'
-    . $initCryptoPath
-    Initialize-SSHCrypto
-
-    # Load cmdlets
-    $publicPath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Public'
-    . (Join-Path $publicPath 'New-SSHKeyPair.ps1')
-    . (Join-Path $publicPath 'ConvertTo-SSHPublicKey.ps1')
-    . (Join-Path $publicPath 'Get-SSHKeyFingerprint.ps1')
-    . (Join-Path $publicPath 'Test-SSHKeyFile.ps1')
+    . (Join-Path (Join-Path $PSScriptRoot '..') 'TestHelper.ps1')
 
     # Temp directory for test keys
     $script:TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "pwssh_test_$([guid]::NewGuid().ToString('N').Substring(0, 8))"

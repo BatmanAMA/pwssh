@@ -1,5 +1,5 @@
 BeforeAll {
-    . (Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Private' 'Resolve-SSHHostName.ps1')
+    . (Join-Path (Join-Path $PSScriptRoot '..') 'TestHelper.ps1')
 }
 
 Describe 'Resolve-SSHHostName' {

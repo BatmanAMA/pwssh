@@ -1,11 +1,5 @@
 BeforeAll {
-    # Dot-source the class files directly for unit testing
-    $classPath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Classes'
-    . (Join-Path $classPath 'SSHHostKey.ps1')
-    . (Join-Path $classPath 'SSHKnownHost.ps1')
-    . (Join-Path $classPath 'SSHCommandResult.ps1')
-    . (Join-Path $classPath 'SSHPortForward.ps1')
-    . (Join-Path $classPath 'SSHSession.ps1')
+    . (Join-Path (Join-Path $PSScriptRoot '..') 'TestHelper.ps1')
 }
 
 Describe 'SSHSessionInfo' {
@@ -75,7 +69,7 @@ Describe 'SSHSessionInfo' {
 Describe 'SSHCommandResult' {
     It 'creates a new instance' {
         $result = [SSHCommandResult]::new()
-        $result | Should -Not -BeNullOrEmpty
+        $result | Should -BeOfType ([SSHCommandResult])
     }
 
     It 'stores command execution details' {

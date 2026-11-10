@@ -1,12 +1,15 @@
 function Get-SSHHostKey {
     <#
     .SYNOPSIS
-        Retrieves the SSH host key from a remote server.
+        Retrieves the SSH host key a server presents.
     .DESCRIPTION
-        Connects to the specified host and retrieves its public host key information
-        without establishing a full session.
+        Connects to the host, records the host key it offers and aborts the connection
+        before authentication. Nothing is sent to the server beyond the key exchange.
+
+        The key is NOT verified. Compare the fingerprint with one obtained through a
+        trusted channel before adding it to known_hosts.
     .PARAMETER ComputerName
-        The hostname or IP address to query.
+        The hostname or IP address to query. Supports host:port syntax.
     .PARAMETER Port
         The SSH port. Defaults to 22.
     .PARAMETER Timeout
@@ -34,11 +37,17 @@ function Get-SSHHostKey {
 
     process {
         foreach ($target in $ComputerName) {
-            $parsed = Resolve-SSHHostName -Target $target -DefaultPort $Port
-            $hostName = $parsed.ComputerName
-            $hostPort = $parsed.Port
-
+            $hostName = $target
+            $hostPort = $Port
             try {
+                if (-not ('Renci.SshNet.SshClient' -as [type])) {
+                    throw 'SSH.NET is not loaded. Run build.ps1 to download the module dependencies.'
+                }
+
+                $parsed = Resolve-SSHHostName -Target $target -DefaultPort $Port
+                $hostName = $parsed.ComputerName
+                $hostPort = $parsed.Port
+
                 $connInfo = [Renci.SshNet.ConnectionInfo]::new(
                     $hostName,
                     $hostPort,
@@ -50,35 +59,35 @@ function Get-SSHHostKey {
                 $connInfo.Timeout = [timespan]::FromSeconds($Timeout)
 
                 $client = [Renci.SshNet.SshClient]::new($connInfo)
+                $verifier = [PwSSH.HostKeyVerifier]::new()
+                $verifier.Mode = [PwSSH.HostKeyMode]::Capture
+                $verifier.Host = $hostName
+                $verifier.Port = $hostPort
+                $verifier.Attach($client)
 
-                # Use a shared hashtable instead of Set-Variable -Scope (which is
-                # fragile if the callback fires on a different thread or call depth)
-                $captured = @{ Value = $null }
-                $currentHost = $hostName
-                $currentPort = $hostPort
-
-                $client.add_HostKeyReceived({
-                    param($sender, $e)
-                    $info = [SSHHostKey]::new()
-                    $info.ComputerName   = $currentHost
-                    $info.Port           = $currentPort
-                    $info.KeyType        = $e.HostKeyName
-                    $info.KeyLength      = $e.KeyLength
-                    $info.RawKey         = $e.HostKey
-                    $info.Fingerprint    = ConvertTo-SSHFingerprint -KeyData $e.HostKey -Algorithm SHA256
-                    $info.FingerprintMD5 = ConvertTo-SSHFingerprint -KeyData $e.HostKey -Algorithm MD5
-                    $captured.Value = $info
-                    $e.CanTrust = $true
-                })
-
-                try { $client.Connect() } catch { <# Expected to fail auth #> }
+                $connectError = $null
+                try { $client.Connect() }
+                catch { $connectError = $_ }   # expected: the verifier refuses the key
                 finally { $client.Dispose() }
 
-                if ($captured.Value) { $captured.Value }
-                else { Write-Warning "Could not retrieve host key from ${hostName}:${hostPort}" }
+                if (-not $verifier.KeyBlob) {
+                    $reason = if ($connectError) { $connectError.Exception.Message } else { 'no host key was offered' }
+                    throw $reason
+                }
+
+                $info = [SSHHostKey]::new()
+                $info.ComputerName = $hostName
+                $info.Port         = $hostPort
+                $info.KeyType      = $verifier.KeyType
+                $info.KeyLength    = $verifier.KeyLength
+                $info.RawKey       = $verifier.KeyBlob
+                $info.Fingerprint  = $verifier.Fingerprint
+                try { $info.FingerprintMD5 = ConvertTo-SSHFingerprint -KeyData $verifier.KeyBlob -Algorithm MD5 }
+                catch { $info.FingerprintMD5 = $null }   # MD5 is unavailable in FIPS mode
+                $info
             }
             catch {
-                Write-Error "Failed to get host key from ${hostName}:${hostPort}: $_"
+                Write-Error "Failed to get host key from ${hostName}:${hostPort}: $(Get-SSHErrorMessage $_)"
             }
         }
     }

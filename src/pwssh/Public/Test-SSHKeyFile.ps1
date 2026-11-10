@@ -37,34 +37,21 @@ function Test-SSHKeyFile {
             Error      = $null
         }
 
-        if (-not (Test-Path $Path)) {
+        $fullPath = Resolve-SSHLocalPath -Path $Path
+        if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
             $result.Error = 'File not found'
             $result
             return
         }
 
         try {
-            $content = [System.IO.File]::ReadAllText($Path).Trim()
+            $content = [System.IO.File]::ReadAllText($fullPath).Trim()
 
             if ($content.StartsWith('-----BEGIN OPENSSH PRIVATE KEY-----')) {
                 $result.Format = 'OpenSSH Private Key'
 
-                # Check if encrypted by peeking at the binary
-                $b64 = $content.
-                    Replace('-----BEGIN OPENSSH PRIVATE KEY-----', '').
-                    Replace('-----END OPENSSH PRIVATE KEY-----', '').
-                    Replace("`r", '').Replace("`n", '').Trim()
-                $raw = [System.Convert]::FromBase64String($b64)
-                $magic = [System.Text.Encoding]::ASCII.GetString($raw, 0, 14)
-
-                if ($magic -eq 'openssh-key-v1') {
-                    # Read cipher name to check encryption
-                    $ms = [System.IO.MemoryStream]::new($raw)
-                    $ms.Position = 15 # skip magic + null
-                    $cipherName = [PwSSH.Crypto.SshWireFormat]::ReadString($ms)
-                    $ms.Dispose()
-                    $result.Encrypted = ($cipherName -ne 'none')
-                }
+                $cipherName = [PwSSH.Crypto.OpenSshKeyFormat]::GetCipherName($content)
+                $result.Encrypted = ($cipherName -ne 'none')
 
                 $passStr = $null
                 try {
@@ -93,12 +80,20 @@ function Test-SSHKeyFile {
                 $result.KeyType = $keyData.KeyType
                 $result.Valid = $true
             }
+            elseif ($content -match '^-----BEGIN ((RSA|EC|DSA|ENCRYPTED) )?PRIVATE KEY-----') {
+                $result.Format = 'PEM Private Key'
+                $result.Error = 'PEM/PKCS#8 private keys are not parsed by this cmdlet. Convert with: ssh-keygen -p -f <file>'
+            }
+            elseif ($content.StartsWith('PuTTY-User-Key-File')) {
+                $result.Format = 'PuTTY Private Key'
+                $result.Error = 'PuTTY .ppk keys are not supported. Export the key in OpenSSH format from PuTTYgen.'
+            }
             else {
                 $result.Error = 'Unrecognized key format'
             }
         }
         catch {
-            $result.Error = $_.Exception.Message
+            $result.Error = Get-SSHErrorMessage $_
         }
 
         $result

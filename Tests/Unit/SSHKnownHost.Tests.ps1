@@ -1,20 +1,5 @@
 BeforeAll {
-    $classPath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Classes'
-    . (Join-Path $classPath 'SSHHostKey.ps1')
-    . (Join-Path $classPath 'SSHKnownHost.ps1')
-    . (Join-Path $classPath 'SSHCommandResult.ps1')
-    . (Join-Path $classPath 'SSHPortForward.ps1')
-    . (Join-Path $classPath 'SSHSession.ps1')
-
-    $privatePath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Private'
-    . (Join-Path $privatePath 'Initialize-SSHSessionStore.ps1')
-    . (Join-Path $privatePath 'Get-SSHKnownHostsPath.ps1')
-    . (Join-Path $privatePath 'ConvertTo-SSHFingerprint.ps1')
-
-    $publicPath = Join-Path $PSScriptRoot '..' '..' 'src' 'pwssh' 'Public'
-    . (Join-Path $publicPath 'Get-SSHKnownHost.ps1')
-    . (Join-Path $publicPath 'Add-SSHKnownHost.ps1')
-    . (Join-Path $publicPath 'Remove-SSHKnownHost.ps1')
+    . (Join-Path (Join-Path $PSScriptRoot '..') 'TestHelper.ps1')
 }
 
 Describe 'Get-SSHKnownHost' {
@@ -102,16 +87,18 @@ Describe 'Add-SSHKnownHost' {
 
     It 'adds an entry to known_hosts' {
         $testFile = Join-Path $testDir 'add_test'
-        Add-SSHKnownHost -HostName 'newhost.example.com' -KeyType 'ssh-ed25519' -KeyData 'AAAA1234' -Path $testFile -Confirm:$false
+        $keyData = New-TestHostKeyData -KeyType 'ssh-ed25519'
+        Add-SSHKnownHost -HostName 'newhost.example.com' -KeyType 'ssh-ed25519' -KeyData $keyData -Path $testFile -Confirm:$false
         $content = Get-Content $testFile -Raw
-        $content | Should -BeLike '*newhost.example.com ssh-ed25519 AAAA1234*'
+        $content | Should -Be "newhost.example.com ssh-ed25519 $keyData`n"
     }
 
     It 'adds bracketed entry for non-standard port' {
         $testFile = Join-Path $testDir 'add_port_test'
-        Add-SSHKnownHost -HostName '10.0.0.1' -Port 2222 -KeyType 'ssh-rsa' -KeyData 'BBBB5678' -Path $testFile -Confirm:$false
+        $keyData = New-TestHostKeyData -KeyType 'ssh-rsa'
+        Add-SSHKnownHost -HostName '10.0.0.1' -Port 2222 -KeyType 'ssh-rsa' -KeyData $keyData -Path $testFile -Confirm:$false
         $content = Get-Content $testFile -Raw
-        $content | Should -BeLike '*[10.0.0.1]:2222 ssh-rsa BBBB5678*'
+        $content | Should -Be "[10.0.0.1]:2222 ssh-rsa $keyData`n"
     }
 
     It 'accepts SSHHostKey from pipeline' {
@@ -120,7 +107,7 @@ Describe 'Add-SSHKnownHost' {
         $hostKey.ComputerName = 'pipehost'
         $hostKey.Port = 22
         $hostKey.KeyType = 'ssh-ed25519'
-        $hostKey.RawKey = [byte[]]@(65, 65, 65, 65)
+        $hostKey.RawKey = [System.Convert]::FromBase64String((New-TestHostKeyData -KeyType 'ssh-ed25519'))
 
         $hostKey | Add-SSHKnownHost -Path $testFile -Confirm:$false
         $content = Get-Content $testFile -Raw
@@ -129,7 +116,7 @@ Describe 'Add-SSHKnownHost' {
 
     It 'supports WhatIf' {
         $testFile = Join-Path $testDir 'whatif_test'
-        Add-SSHKnownHost -HostName 'whatif.example.com' -KeyType 'ssh-rsa' -KeyData 'XXXX' -Path $testFile -WhatIf
+        Add-SSHKnownHost -HostName 'whatif.example.com' -KeyType 'ssh-rsa' -KeyData (New-TestHostKeyData -KeyType 'ssh-rsa') -Path $testFile -WhatIf
         Test-Path $testFile | Should -BeFalse
     }
 }
@@ -184,7 +171,7 @@ Describe 'Remove-SSHKnownHost' {
         ) | Set-Content -Path $testFile
 
         Remove-SSHKnownHost -HostName 'host1', 'host3' -Path $testFile -Confirm:$false
-        $lines = Get-Content $testFile
+        $lines = @(Get-Content $testFile)
         $lines.Count | Should -Be 1
         $lines[0] | Should -BeLike '*host2*'
     }

@@ -1,63 +1,67 @@
 #Requires -Version 5.1
-# Use a local preference for module load — does not leak to caller because
-# psm1 files run in the module scope, but be explicit with try/catch below.
-$script:ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 
-# Load SSH.NET assembly
-$libPath = Join-Path $PSScriptRoot 'lib' 'Renci.SshNet.dll'
-if (Test-Path $libPath) {
+if ($PSVersionTable.PSEdition -eq 'Core' -and $PSVersionTable.PSVersion -lt [version]'7.2') {
+    throw "pwssh requires Windows PowerShell 5.1 or PowerShell 7.2+. This is PowerShell $($PSVersionTable.PSVersion)."
+}
+
+# Private functions (sorted for a deterministic load order)
+Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'Private') -Filter '*.ps1' | Sort-Object Name | ForEach-Object {
+    . $_.FullName
+}
+
+# C# types: key handling, known_hosts, host key verification and the output classes.
+# These have no dependency on SSH.NET, so key management works without it.
+Initialize-SSHCrypto
+
+# SSH.NET and its dependencies. build.ps1 places them in lib/desktop (.NET Framework)
+# and lib/core (.NET 6+).
+$libEdition = if ($PSVersionTable.PSEdition -eq 'Desktop') { 'desktop' } else { 'core' }
+$libDir     = Join-Path (Join-Path $PSScriptRoot 'lib') $libEdition
+$sshNetPath = Join-Path $libDir 'Renci.SshNet.dll'
+
+if ('Renci.SshNet.SshClient' -as [type]) {
+    Write-Verbose "pwssh: using the SSH.NET assembly already loaded in this session ($([Renci.SshNet.SshClient].Assembly.Location))."
+}
+elseif (Test-Path -LiteralPath $sshNetPath) {
+    # Resolve the bundled dependencies (BouncyCastle, ...) from the same directory.
+    [PwSSH.AssemblyResolver]::Register($libDir)
     try {
-        Add-Type -Path $libPath -ErrorAction Stop
+        if ($libEdition -eq 'core') {
+            $bouncyCastle = Join-Path $libDir 'BouncyCastle.Cryptography.dll'
+            if (Test-Path -LiteralPath $bouncyCastle) { Add-Type -LiteralPath $bouncyCastle }
+        }
+        Add-Type -LiteralPath $sshNetPath
     }
-    catch [System.Reflection.ReflectionTypeLoadException] {
-        # Assembly already loaded — safe to ignore
+    catch {
+        $detail = $_.Exception.Message
+        if ($_.Exception -is [System.Reflection.ReflectionTypeLoadException]) {
+            $detail = ($_.Exception.LoaderExceptions | ForEach-Object { $_.Message } | Select-Object -Unique) -join '; '
+        }
+        throw "pwssh: failed to load SSH.NET from '$libDir': $detail"
     }
 }
 else {
-    Write-Warning "pwssh: Renci.SshNet.dll not found at $libPath. Run build.ps1 to download dependencies."
+    Write-Warning "pwssh: SSH.NET not found in '$libDir'. Run build.ps1 to download the dependencies. Key and known_hosts cmdlets work without it; connections do not."
 }
 
-# Load classes (order matters — no circular dependencies)
-$classFiles = @(
-    'SSHHostKey'
-    'SSHKnownHost'
-    'SSHCommandResult'
-    'SSHPortForward'
-    'SSHSession'
-)
-foreach ($class in $classFiles) {
-    . (Join-Path $PSScriptRoot 'Classes' "$class.ps1")
+# Public functions
+Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'Public') -Filter '*.ps1' | Sort-Object Name | ForEach-Object {
+    . $_.FullName
 }
 
-# Load private functions (excluding CSharp directory which is compiled separately)
-# Sort by name for deterministic load order across platforms
-$privatePath = Join-Path $PSScriptRoot 'Private'
-if (Test-Path $privatePath) {
-    Get-ChildItem -Path $privatePath -Filter '*.ps1' | Sort-Object Name | ForEach-Object {
-        . $_.FullName
-    }
-}
-
-# Compile and load the PwSSH.Crypto C# engine
-Initialize-SSHCrypto
-
-# Load public functions (sorted for deterministic load order)
-$publicPath = Join-Path $PSScriptRoot 'Public'
-if (Test-Path $publicPath) {
-    Get-ChildItem -Path $publicPath -Filter '*.ps1' -Recurse | Sort-Object Name | ForEach-Object {
-        . $_.FullName
-    }
-}
-
-# Initialize module state
+# Module state
 $script:SSHSessions     = [System.Collections.Generic.Dictionary[int, SSHSessionInfo]]::new()
-$script:SSHPortForwards  = [System.Collections.Generic.Dictionary[int, SSHPortForward]]::new()
-$script:NextSessionId    = 1
-$script:NextForwardId    = 1
+$script:SSHPortForwards = [System.Collections.Generic.Dictionary[int, SSHPortForward]]::new()
+$script:NextSessionId   = 1
+$script:NextForwardId   = 1
 
-# Module cleanup — disconnect all sessions on module removal
+# Disconnect everything when the module is removed
 $MyInvocation.MyCommand.ScriptBlock.Module.OnRemove = {
-    foreach ($session in $script:SSHSessions.Values) {
+    foreach ($forward in @($script:SSHPortForwards.Values)) {
+        try { $forward.Stop() } catch { }
+    }
+    foreach ($session in @($script:SSHSessions.Values)) {
         try { $session.Disconnect() } catch { }
     }
     $script:SSHSessions.Clear()

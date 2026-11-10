@@ -1,16 +1,17 @@
 @{
     RootModule        = 'pwssh.psm1'
-    ModuleVersion     = '0.1.0'
+    ModuleVersion     = '0.2.0'
     GUID              = '23481e80-8ebc-4dd9-a5ae-68ca4deda202'
     Author            = 'BatmanAMA'
     CompanyName       = 'Community'
     Copyright         = '(c) 2025 BatmanAMA. MIT License.'
-    Description       = 'A pure .NET/PowerShell SSH client module built on SSH.NET. Provides session management, command execution, SCP/SFTP file transfer, port forwarding, and key management.'
+    Description       = 'An SSH client module for PowerShell built on SSH.NET: sessions, command execution, SCP/SFTP file transfer, port forwarding, OpenSSH-compatible key generation and known_hosts verification.'
 
     PowerShellVersion = '5.1'
     CompatiblePSEditions = @('Desktop', 'Core')
 
-    RequiredAssemblies = @()  # Loaded dynamically in psm1
+    # SSH.NET and its dependencies are loaded by pwssh.psm1 from lib/desktop or lib/core
+    RequiredAssemblies = @()
 
     FormatsToProcess  = @('Formats/pwssh.Format.ps1xml')
     TypesToProcess    = @('Types/pwssh.Types.ps1xml')
@@ -61,7 +62,7 @@
             Tags         = @('SSH', 'SCP', 'SFTP', 'RemoteAccess', 'Networking', 'Linux', 'CrossPlatform')
             LicenseUri   = 'https://opensource.org/licenses/MIT'
             ProjectUri   = 'https://github.com/BatmanAMA/pwssh'
-            ReleaseNotes = 'Initial release — SSH sessions, command execution, SCP/SFTP, port forwarding, key management.'
+            ReleaseNotes = 'See CHANGELOG.md at https://github.com/BatmanAMA/pwssh/blob/main/CHANGELOG.md'
         }
     }
 }
