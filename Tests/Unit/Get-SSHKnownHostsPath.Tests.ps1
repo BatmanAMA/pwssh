@@ -10,13 +10,13 @@ Describe 'Get-SSHKnownHostsPath' {
 
     It 'returns default path under HOME/.ssh when no path supplied' {
         $result = Get-SSHKnownHostsPath
-        $expected = Join-Path $HOME '.ssh' 'known_hosts'
+        $expected = Join-Path (Join-Path $HOME '.ssh') 'known_hosts'
         $result | Should -Be $expected
     }
 
     It 'returns default path when Path is empty string' {
         $result = Get-SSHKnownHostsPath -Path ''
-        $expected = Join-Path $HOME '.ssh' 'known_hosts'
+        $expected = Join-Path (Join-Path $HOME '.ssh') 'known_hosts'
         $result | Should -Be $expected
     }
 }
