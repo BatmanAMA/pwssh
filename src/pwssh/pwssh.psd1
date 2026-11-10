@@ -40,7 +40,7 @@
         'Get-SSHPortForward'
         'Remove-SSHPortForward'
 
-        # Key management (pure .NET — no ssh-keygen required)
+        # Key management (implemented in .NET, ssh-keygen is not required)
         'New-SSHKeyPair'
         'ConvertTo-SSHPublicKey'
         'Get-SSHKeyFingerprint'

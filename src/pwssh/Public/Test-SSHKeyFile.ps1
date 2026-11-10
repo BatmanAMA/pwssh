@@ -1,18 +1,42 @@
 function Test-SSHKeyFile {
     <#
     .SYNOPSIS
-        Validates an SSH key file.
+        Checks whether a file is a valid OpenSSH key.
     .DESCRIPTION
-        Tests whether a file is a valid OpenSSH key (public or private).
-        Returns a validation result object. Equivalent to ssh-keygen -y (for validation).
+        Reads a key file and reports whether it could be parsed. Two formats are
+        parsed: OpenSSH private keys (files that start with
+        -----BEGIN OPENSSH PRIVATE KEY-----) and OpenSSH public key lines of type
+        ssh-ed25519, ssh-rsa or ecdsa-sha2-*.
+
+        PEM and PKCS#8 private keys and PuTTY .ppk files are recognised but not parsed:
+        they are reported as not valid, with an explanation in the Error property.
+
+        An encrypted private key can only be validated with its passphrase. Without
+        -Passphrase it is reported as encrypted and not valid. Only keys encrypted with
+        aes256-ctr and bcrypt can be decrypted.
+
+        A missing file, a wrong passphrase or a damaged key does not produce an error.
+        The command returns a result with Valid set to false and the reason in Error.
     .PARAMETER Path
-        Path to the key file to validate.
+        Path to the key file to check. A relative path is resolved against the current
+        PowerShell location and ~ is expanded. Accepts pipeline input, including file
+        objects from Get-ChildItem (alias FullName).
     .PARAMETER Passphrase
-        SecureString passphrase if the private key is encrypted.
+        SecureString passphrase for an encrypted private key.
     .EXAMPLE
         Test-SSHKeyFile -Path ~/.ssh/id_ed25519
     .EXAMPLE
-        Get-ChildItem ~/.ssh/id_* | Test-SSHKeyFile
+        Get-ChildItem ~/.ssh/id_* | Test-SSHKeyFile | Where-Object { -not $_.Valid }
+
+        Shows the key files in ~/.ssh that could not be validated, and why.
+    .EXAMPLE
+        $pass = Read-Host -AsSecureString -Prompt 'Passphrase'
+        (Test-SSHKeyFile -Path ./deploy_key -Passphrase $pass).Valid
+
+        Checks that the passphrase opens the key.
+    .OUTPUTS
+        SSHKeyValidationResult
+        A custom object with Path, Valid, KeyType, Format, Encrypted and Error.
     #>
     [CmdletBinding()]
     param(

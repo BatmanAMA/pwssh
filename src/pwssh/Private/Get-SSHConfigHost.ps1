@@ -6,8 +6,11 @@ function Get-SSHConfigHost {
         Supports the subset of ssh_config(5) that maps onto this module: Host blocks
         (with * ? wildcards and ! negation) and the HostName, User, Port and
         IdentityFile keywords. As in OpenSSH, the first value obtained for a keyword
-        wins, except IdentityFile which accumulates. Match blocks and Include
-        directives are skipped.
+        wins, except IdentityFile which accumulates. In IdentityFile values the
+        tokens %d (home directory) and %h (the host name as given) are expanded.
+        Everything inside a Match block is skipped, and Include directives and
+        all other keywords are ignored. Without -Path, ~/.ssh/config is read; the
+        system-wide ssh_config is never read.
     .OUTPUTS
         A hashtable with HostName, User, Port and IdentityFile (string[]) keys;
         values are $null / empty when the file does not set them.

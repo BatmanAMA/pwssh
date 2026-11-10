@@ -4,20 +4,24 @@ function Add-SSHKnownHost {
         Adds an entry to the SSH known_hosts file.
     .DESCRIPTION
         Appends a host key entry to the known_hosts file in OpenSSH format. An entry
-        that is already present is not added twice.
+        that is already present is not added twice. The input is validated first: the
+        host name must be a single plain name or address (no whitespace, commas,
+        wildcards or brackets), and the key data must be valid base64 that encodes a
+        public key of the stated type. Supports -WhatIf and -Confirm.
 
         Adding a key makes New-SSHSession trust it. Only add keys whose fingerprint
         you have verified through a trusted channel.
     .PARAMETER HostName
-        The hostname or IP address.
+        The host name or IP address.
     .PARAMETER Port
-        The SSH port. Defaults to 22.
+        The SSH port. Defaults to 22. Other ports are stored as [host]:port.
     .PARAMETER KeyType
-        The key algorithm (e.g. ssh-ed25519, ssh-rsa).
+        The key algorithm (for example ssh-ed25519 or ssh-rsa).
     .PARAMETER KeyData
         The base64-encoded public key data.
     .PARAMETER HostKey
-        An SSHHostKey object (from Get-SSHHostKey).
+        An SSHHostKey object from Get-SSHHostKey. Accepts pipeline input. Host name,
+        port, key type and key data are taken from it.
     .PARAMETER HashHostName
         Store the host name hashed (like OpenSSH HashKnownHosts yes).
     .PARAMETER Path
@@ -26,8 +30,14 @@ function Add-SSHKnownHost {
         $key = Get-SSHHostKey server01
         $key.Fingerprint   # compare with the fingerprint from the server's administrator
         $key | Add-SSHKnownHost
+
+        Retrieves the key, shows its fingerprint for comparison and then records it.
     .EXAMPLE
-        Add-SSHKnownHost -HostName 10.0.0.1 -KeyType ssh-ed25519 -KeyData 'AAAA...'
+        Add-SSHKnownHost -HostName 10.0.0.1 -Port 2222 -KeyType ssh-ed25519 -KeyData 'AAAA...' -HashHostName
+
+        Records a key received through a trusted channel, with the host name hashed.
+    .OUTPUTS
+        None
     #>
     [CmdletBinding(DefaultParameterSetName = 'Manual', SupportsShouldProcess)]
     param(

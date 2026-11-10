@@ -2,6 +2,10 @@ function Get-SSHKnownHostsPath {
     <#
     .SYNOPSIS
         Returns the known_hosts file to use: the given path, or ~/.ssh/known_hosts.
+    .DESCRIPTION
+        Without -Path, ~/.ssh is created with owner-only permissions if it does
+        not exist. The system-wide files are /etc/ssh/ssh_known_hosts and
+        ssh_known_hosts2, or the same names under %ProgramData%\ssh on Windows.
     .PARAMETER Path
         An explicit known_hosts path (relative paths and ~ are resolved).
     .PARAMETER All

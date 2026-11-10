@@ -1,23 +1,41 @@
 function Send-SCPFile {
     <#
     .SYNOPSIS
-        Uploads a file to a remote host via SCP.
+        Uploads a file or directory to a remote host with SCP.
     .DESCRIPTION
-        Copies a local file to the remote host using the SCP protocol over an existing SSH session.
+        Copies a local file, or with -Recurse a local directory, to the remote host
+        using the SCP protocol.
+
+        The transfer does not run over the session's own connection. The first SCP
+        command on a session opens a second connection with the session's connection
+        settings; it is kept and reused by later SCP commands and closed with the
+        session. That connection is pinned to the host key the session accepted: if
+        the server presents any other key the transfer is refused.
+
+        SCP has no overwrite check, so an existing remote file is replaced. When a
+        directory is uploaded, RemotePath must be an existing directory and the
+        contents of the local directory are copied into it.
     .PARAMETER SessionId
-        The session ID to use for the transfer.
+        The ID of the session to use for the transfer.
     .PARAMETER Session
-        An SSHSessionInfo object to use for the transfer.
+        The SSHSessionInfo object to use for the transfer. Accepts pipeline input.
     .PARAMETER LocalPath
-        Path to the local file or directory to upload.
+        Path to the local file or directory to upload. It must exist. A relative path
+        is resolved against the current PowerShell location and ~ is expanded.
+        Aliases: Source, Path.
     .PARAMETER RemotePath
-        Destination path on the remote host.
+        Destination path on the remote host. Alias: Destination.
     .PARAMETER Recurse
-        Recursively upload directories.
+        Upload a directory and everything below it. Required when LocalPath is a
+        directory.
     .EXAMPLE
         Send-SCPFile -SessionId 1 -LocalPath ./app.tar.gz -RemotePath /tmp/app.tar.gz
     .EXAMPLE
         Send-SCPFile -SessionId 1 -LocalPath ./deploy/ -RemotePath /opt/app/ -Recurse
+
+        Copies the contents of ./deploy into the existing remote directory /opt/app.
+    .OUTPUTS
+        None
     #>
     [CmdletBinding(DefaultParameterSetName = 'ById')]
     param(

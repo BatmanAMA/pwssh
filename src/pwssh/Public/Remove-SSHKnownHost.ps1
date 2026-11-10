@@ -4,10 +4,12 @@ function Remove-SSHKnownHost {
         Removes entries from the SSH known_hosts file.
     .DESCRIPTION
         Removes every line of the known_hosts file that applies to the given host and
-        port, including hashed entries (like ssh-keygen -R). @revoked and
-        @cert-authority lines are kept. The file is replaced atomically.
+        port, including hashed entries (like ssh-keygen -R). A line that lists several
+        host names, or a pattern that covers the host, is removed as a whole. @revoked
+        and @cert-authority lines are kept. The file is replaced atomically. Supports
+        -WhatIf and -Confirm.
     .PARAMETER HostName
-        The hostname to remove.
+        One or more host names to remove. Accepts pipeline input.
     .PARAMETER Port
         The SSH port. Defaults to 22.
     .PARAMETER Path
@@ -16,6 +18,10 @@ function Remove-SSHKnownHost {
         Remove-SSHKnownHost -HostName 'old-server.example.com'
     .EXAMPLE
         Remove-SSHKnownHost -HostName '10.0.0.1' -Port 2222
+
+        Removes the entries stored as [10.0.0.1]:2222.
+    .OUTPUTS
+        None
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(

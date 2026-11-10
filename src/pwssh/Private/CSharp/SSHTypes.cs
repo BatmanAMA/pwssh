@@ -110,7 +110,8 @@ public class SSHPortForward
             case "Local":
                 return String.Format("L:{0}:{1} -> {2}:{3}", BoundHost, BoundPort, RemoteHost, RemotePort);
             case "Remote":
-                return String.Format("R:{0}:{1} -> {2}:{3}", RemoteHost, RemotePort, BoundHost, BoundPort);
+                // Listener first, then destination, as for Local
+                return String.Format("R:{0}:{1} -> {2}:{3}", BoundHost, BoundPort, RemoteHost, RemotePort);
             case "Dynamic":
                 return String.Format("D:{0}:{1}", BoundHost, BoundPort);
             default:

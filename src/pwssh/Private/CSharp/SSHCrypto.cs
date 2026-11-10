@@ -1,6 +1,21 @@
 // ==========================================================================
-// PwSSH.Crypto — Pure managed SSH key operations
-// No external dependencies beyond .NET Framework 4.7.2+ / .NET 6+
+// PwSSH.Crypto: managed code for SSH key files. No dependency on SSH.NET.
+//
+// Contents:
+//   SshWireFormat     RFC 4251 encoding (uint32, string, mpint)
+//   Ed25519           public key derivation from a seed (RFC 8032), built on
+//                     BigInteger. Not constant time; used for key generation only.
+//   BlowfishCipher    Blowfish with the bcrypt key schedule
+//   BcryptPbkdf       bcrypt_pbkdf as implemented by OpenSSH
+//   AesCtr            AES in counter mode
+//   OpenSshKeyFormat  generates Ed25519, RSA and ECDSA keys, reads and writes the
+//                     OpenSSH private key format ("openssh-key-v1", unencrypted or
+//                     aes256-ctr with bcrypt), reads and writes public key lines
+//                     and computes fingerprints
+//
+// RSA and ECDSA keys come from the platform providers (RSA.Create, ECDsa.Create).
+// Compiled at import with Add-Type together with SSHTypes.cs. Language level:
+// C# 5, so that Windows PowerShell 5.1 can compile it.
 // ==========================================================================
 using System;
 using System.Collections.Generic;
@@ -108,7 +123,7 @@ namespace PwSSH.Crypto
     }
 
     // ======================================================================
-    // Ed25519 — BigInteger-based implementation (RFC 8032)
+    // Ed25519: BigInteger-based implementation (RFC 8032)
     // ======================================================================
     public static class Ed25519
     {
@@ -245,7 +260,8 @@ namespace PwSSH.Crypto
             BigInteger x = BigInteger.Zero, y = BigInteger.One, z = BigInteger.One, t = BigInteger.Zero;
             BigInteger qx = bx, qy = by, qz = BigInteger.One, qt = Mod(bx * by, P);
 
-            // Double-and-add (constant-ish time not needed for keygen)
+            // Double-and-add. Not constant time, which is acceptable because this is
+            // only used to derive the public key during local key generation.
             // (BigInteger.GetBitLength() needs .NET 5+; leading zero bits only double
             // the identity point, which is harmless.)
             int bits = scalar.ToByteArray().Length * 8;

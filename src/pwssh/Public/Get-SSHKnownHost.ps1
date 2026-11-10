@@ -7,6 +7,9 @@ function Get-SSHKnownHost {
         host name on each line. Hashed entries (|1|salt|hash), @revoked and
         @cert-authority markers, per-host [host]:port syntax and trailing comments
         are understood.
+
+        Only one file is read: ~/.ssh/known_hosts, or the file given with -Path. The
+        system-wide files that New-SSHSession also consults are not listed.
     .PARAMETER Path
         Path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
     .PARAMETER HostName
@@ -14,11 +17,22 @@ function Get-SSHKnownHost {
         names stored in the file; hashed entries and entries whose stored pattern
         covers the name (for example *.example.com) are matched the way OpenSSH would.
     .PARAMETER Port
-        With -HostName, only return entries for this port.
+        With -HostName, return only entries for this port. Without it, entries for the
+        name are returned whatever their port.
     .EXAMPLE
         Get-SSHKnownHost
+
+        Lists every entry in ~/.ssh/known_hosts.
     .EXAMPLE
-        Get-SSHKnownHost -HostName 'github.com'
+        Get-SSHKnownHost -HostName 'github.com' | Format-List HostName, KeyType, Fingerprint
+
+        Shows the keys recorded for one host.
+    .EXAMPLE
+        Get-SSHKnownHost -Path ./known_hosts -HostName server01 -Port 2222
+    .OUTPUTS
+        SSHKnownHost
+        Properties: HostName, Port, KeyType, KeyData, Fingerprint, Marker, Hashed,
+        Comment, Source and LineNumber.
     #>
     [CmdletBinding()]
     [OutputType([SSHKnownHost])]

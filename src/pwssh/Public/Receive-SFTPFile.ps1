@@ -1,21 +1,42 @@
 function Receive-SFTPFile {
     <#
     .SYNOPSIS
-        Downloads a file from a remote host via SFTP.
+        Downloads a file from a remote host with SFTP.
     .DESCRIPTION
-        Copies a remote file to the local machine using SFTP.
+        Copies one remote file to the local machine using SFTP.
+
+        If the local file already exists the command writes an error and transfers
+        nothing, unless -Overwrite is given. The data is first written to a temporary
+        file next to the destination (the destination name followed by a random
+        identifier and the extension .part) and renamed when the download has
+        completed. A failed download therefore leaves neither a partial file nor a
+        damaged copy of the file being replaced. The parent directory of the
+        destination is created if it does not exist.
+
+        The transfer does not run over the session's own connection. The first SFTP
+        command on a session opens a second connection with the session's connection
+        settings; it is kept and reused by later SFTP commands and closed with the
+        session. That connection is pinned to the host key the session accepted: if
+        the server presents any other key the transfer is refused.
     .PARAMETER SessionId
-        The session ID to use for the transfer.
+        The ID of the session to use for the transfer.
     .PARAMETER Session
-        An SSHSessionInfo object to use for the transfer.
+        The SSHSessionInfo object to use for the transfer. Accepts pipeline input.
     .PARAMETER RemotePath
-        Path on the remote host to download.
+        Path of the file on the remote host. Alias: Source.
     .PARAMETER LocalPath
-        Local destination path.
+        Path of the local file to write. A relative path is resolved against the
+        current PowerShell location and ~ is expanded. Aliases: Destination, Path.
     .PARAMETER Overwrite
-        Overwrite the local file if it exists.
+        Replace the local file if it exists.
     .EXAMPLE
         Receive-SFTPFile -SessionId 1 -RemotePath /var/log/app.log -LocalPath ./app.log
+    .EXAMPLE
+        Receive-SFTPFile -SessionId 1 -RemotePath /etc/myapp/config.yml -LocalPath ~/backup/config.yml -Overwrite
+
+        Replaces an earlier local copy. The old copy is kept if the download fails.
+    .OUTPUTS
+        None
     #>
     [CmdletBinding(DefaultParameterSetName = 'ById')]
     param(

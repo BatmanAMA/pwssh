@@ -3,15 +3,20 @@ function Remove-SSHPortForward {
     .SYNOPSIS
         Stops and removes SSH port forwards.
     .DESCRIPTION
-        Stops the forwarded port and removes it from the store.
+        Stops the forwarded port and removes it from the module's store. The SSH
+        session stays open. Supports -WhatIf and -Confirm.
     .PARAMETER ForwardId
         One or more forward IDs to remove.
     .PARAMETER Forward
-        One or more SSHPortForward objects to remove.
+        One or more SSHPortForward objects to remove. Accepts pipeline input.
     .EXAMPLE
         Remove-SSHPortForward -ForwardId 1
     .EXAMPLE
         Get-SSHPortForward -SessionId 1 | Remove-SSHPortForward
+
+        Removes every forward of session 1.
+    .OUTPUTS
+        None
     #>
     [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'ById')]
     param(

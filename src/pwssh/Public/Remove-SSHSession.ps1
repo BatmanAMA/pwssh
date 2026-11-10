@@ -3,15 +3,21 @@ function Remove-SSHSession {
     .SYNOPSIS
         Closes and removes one or more SSH sessions.
     .DESCRIPTION
-        Disconnects the SSH client and removes the session from the session store.
+        Stops the port forwards that belong to the session, closes its SFTP and SCP
+        connections, disconnects the SSH client and removes the session from the
+        session store. Supports -WhatIf and -Confirm.
     .PARAMETER SessionId
         One or more session IDs to remove.
     .PARAMETER Session
-        One or more SSHSessionInfo objects to remove.
+        One or more SSHSessionInfo objects to remove. Accepts pipeline input.
     .EXAMPLE
         Remove-SSHSession -SessionId 1
     .EXAMPLE
         Get-SSHSession | Remove-SSHSession
+
+        Closes every session.
+    .OUTPUTS
+        None
     #>
     [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'ById')]
     param(

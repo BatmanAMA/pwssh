@@ -5,19 +5,40 @@ function Get-SSHHostKey {
     .DESCRIPTION
         Connects to the host, records the host key it offers and aborts the connection
         before authentication. Nothing is sent to the server beyond the key exchange.
+        known_hosts and the ssh config file are not read.
 
-        The key is NOT verified. Compare the fingerprint with one obtained through a
-        trusted channel before adding it to known_hosts.
+        The key is not verified. It is whatever answered at that address, which may be
+        an attacker. Compare the fingerprint with one obtained through a trusted
+        channel before adding it to known_hosts.
     .PARAMETER ComputerName
-        The hostname or IP address to query. Supports host:port syntax.
+        One or more host names or IP addresses to query. Supports host:port syntax,
+        which takes precedence over -Port. Accepts pipeline input. Aliases: HostName,
+        Host.
     .PARAMETER Port
         The SSH port. Defaults to 22.
     .PARAMETER Timeout
-        Connection timeout in seconds. Defaults to 10.
+        Connection timeout in seconds, from 1 to 60. Defaults to 10.
     .EXAMPLE
-        Get-SSHHostKey -ComputerName github.com
+        Get-SSHHostKey -ComputerName server01 | Format-List ComputerName, KeyType, Fingerprint
+
+        Shows the key type and SHA256 fingerprint the server presents, so that they
+        can be compared with the values published by its administrator.
     .EXAMPLE
-        'server1','server2' | Get-SSHHostKey
+        $key = Get-SSHHostKey -ComputerName server01
+        if ($key.Fingerprint -eq 'SHA256:<fingerprint from a trusted source>') {
+            $key | Add-SSHKnownHost
+        }
+
+        Adds the key to known_hosts only if its fingerprint matches the one obtained
+        through a trusted channel.
+    .EXAMPLE
+        'server1', 'server2:2222' | Get-SSHHostKey
+
+        Queries several hosts from the pipeline.
+    .OUTPUTS
+        SSHHostKey
+        Properties: ComputerName, Port, KeyType, KeyLength, Fingerprint (SHA256),
+        FingerprintMD5 and RawKey.
     #>
     [CmdletBinding()]
     [OutputType([SSHHostKey])]

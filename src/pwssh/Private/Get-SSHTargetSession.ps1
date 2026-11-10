@@ -1,9 +1,10 @@
 function Get-SSHTargetSession {
     <#
     .SYNOPSIS
-        Looks up a session by ID and checks that it is still connected.
+        Returns the session for a session ID or session object, after checking
+        that it is still connected.
     .DESCRIPTION
-        Writes a non-terminating error and returns nothing when the session is
+        Writes an error with Write-Error and returns nothing when the session is
         unknown or no longer connected.
     #>
     [CmdletBinding()]

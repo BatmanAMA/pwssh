@@ -1,17 +1,23 @@
 function Get-SSHPortForward {
     <#
     .SYNOPSIS
-        Lists active SSH port forwards.
+        Lists the SSH port forwards created with New-SSHPortForward.
     .DESCRIPTION
-        Returns SSHPortForward objects for active tunnels.
+        Returns SSHPortForward objects from the module's store. Without parameters,
+        all forwards are returned.
     .PARAMETER ForwardId
-        One or more forward IDs to retrieve.
+        One or more forward IDs to retrieve. An error is written for an ID that does
+        not exist.
     .PARAMETER SessionId
-        Filter by session ID.
+        Return only the forwards that belong to this session.
     .EXAMPLE
         Get-SSHPortForward
     .EXAMPLE
         Get-SSHPortForward -SessionId 1
+
+        Lists the forwards carried by session 1.
+    .OUTPUTS
+        SSHPortForward
     #>
     [CmdletBinding(DefaultParameterSetName = 'All')]
     [OutputType([SSHPortForward])]

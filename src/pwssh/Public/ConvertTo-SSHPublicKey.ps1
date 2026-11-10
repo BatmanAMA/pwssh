@@ -3,17 +3,31 @@ function ConvertTo-SSHPublicKey {
     .SYNOPSIS
         Extracts the public key from an OpenSSH private key file.
     .DESCRIPTION
-        Reads an OpenSSH private key file and outputs the corresponding public key
-        line (suitable for authorized_keys). Equivalent to ssh-keygen -y.
+        Reads a private key file and returns the corresponding public key line, in the
+        form used in authorized_keys. Comparable to ssh-keygen -y.
+
+        Only the OpenSSH private key format (-----BEGIN OPENSSH PRIVATE KEY-----) is
+        read. PEM, PKCS#8 and PuTTY keys give an error. Encrypted keys need
+        -Passphrase and must use aes256-ctr with bcrypt.
     .PARAMETER Path
-        Path to the private key file.
+        Path to the private key file. A relative path is resolved against the current
+        PowerShell location and ~ is expanded. Accepts pipeline input. Aliases:
+        PrivateKeyPath, FullName.
     .PARAMETER Passphrase
         SecureString passphrase if the key is encrypted.
     .EXAMPLE
-        ConvertTo-SSHPublicKey -Path ~/.ssh/id_ed25519
+        (ConvertTo-SSHPublicKey -Path ~/.ssh/id_ed25519).PublicKeyLine
+
+        Prints the public key line of the key.
     .EXAMPLE
-        $pass = Read-Host -AsSecureString
-        ConvertTo-SSHPublicKey -Path ~/.ssh/id_rsa -Passphrase $pass
+        $pass = Read-Host -AsSecureString -Prompt 'Passphrase'
+        (ConvertTo-SSHPublicKey -Path ~/.ssh/id_rsa -Passphrase $pass).PublicKeyLine | Set-Content ~/.ssh/id_rsa.pub
+
+        Recreates a lost .pub file from an encrypted private key.
+    .OUTPUTS
+        SSHPublicKeyInfo
+        A custom object with KeyType, PublicKeyLine, Comment, Fingerprint (SHA256) and
+        SourceFile.
     #>
     [CmdletBinding()]
     param(

@@ -1,22 +1,31 @@
 function Get-SSHSession {
     <#
     .SYNOPSIS
-        Lists active SSH sessions.
+        Lists the SSH sessions opened with New-SSHSession.
     .DESCRIPTION
-        Returns one or more SSHSessionInfo objects from the session store.
-        Without parameters, returns all sessions.
+        Returns SSHSessionInfo objects from the module's session store. Without
+        parameters, all sessions are returned, including ones whose connection has
+        dropped. Sessions stay in the store until Remove-SSHSession removes them.
     .PARAMETER SessionId
-        One or more session IDs to retrieve.
+        One or more session IDs to retrieve. An error is written for an ID that does
+        not exist.
     .PARAMETER ComputerName
-        Filter sessions by computer name (supports wildcards).
+        Return only sessions whose ComputerName matches this value. Wildcards are
+        supported. Alias: HostName.
     .PARAMETER Active
-        Only return sessions that are currently connected.
+        Return only sessions that are still connected.
     .EXAMPLE
         Get-SSHSession
+
+        Lists every session.
     .EXAMPLE
         Get-SSHSession -SessionId 1, 2
     .EXAMPLE
         Get-SSHSession -ComputerName 'web*' -Active
+
+        Lists the connected sessions to hosts whose name starts with "web".
+    .OUTPUTS
+        SSHSessionInfo
     #>
     [CmdletBinding(DefaultParameterSetName = 'All')]
     [OutputType([SSHSessionInfo])]

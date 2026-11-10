@@ -7,8 +7,9 @@
 # It loads the module's functions straight into the test scope, so private
 # functions and the session stores ($script:SSHSessions, ...) can be reached and
 # mocked without InModuleScope. Nothing here needs SSH.NET: unit tests must run
-# without the downloaded dependencies. Loading the built module and talking to a
-# real server is covered by Tests/Unit/Module.Tests.ps1 and Tests/Integration.
+# without the downloaded dependencies. Importing the module through its manifest
+# is covered by Tests/Unit/Module.Tests.ps1, and driving the built module against
+# a real server by Tests/Integration.
 
 $script:ModuleRoot = Join-Path (Join-Path (Join-Path $PSScriptRoot '..') 'src') 'pwssh'
 

@@ -1,29 +1,64 @@
 function New-SSHPortForward {
     <#
     .SYNOPSIS
-        Creates an SSH port forward (tunnel).
+        Creates an SSH port forward (tunnel) on an existing session.
     .DESCRIPTION
-        Sets up local, remote, or dynamic (SOCKS) port forwarding through an SSH session.
+        Starts local, remote or dynamic port forwarding through an SSH session and
+        returns an SSHPortForward object. The forward stays active until it is removed
+        with Remove-SSHPortForward or its session is closed.
+
+        The meaning of the parameters depends on -Type:
+
+        Local (like ssh -L): this computer listens on BoundHost:BoundPort. Connections
+        are sent through the session and opened by the server to RemoteHost:RemotePort,
+        so RemoteHost is resolved from the server's point of view.
+
+        Remote (like ssh -R): the server listens on BoundHost:BoundPort. Connections
+        are sent back through the session and opened by this computer to
+        RemoteHost:RemotePort, so RemoteHost is resolved from this computer's point of
+        view. Whether the server binds an address other than its loopback address is
+        decided by the server's configuration.
+
+        Dynamic (like ssh -D): this computer runs a SOCKS proxy on BoundHost:BoundPort.
+        RemoteHost and RemotePort are not used.
     .PARAMETER SessionId
-        The session ID to use for the tunnel.
+        The ID of the session to carry the forward.
     .PARAMETER Session
-        An SSHSessionInfo object.
+        The SSHSessionInfo object to carry the forward. Accepts pipeline input.
     .PARAMETER Type
-        The type of port forward: Local, Remote, or Dynamic.
+        The kind of forward: Local, Remote or Dynamic.
     .PARAMETER BoundHost
-        The local address to bind. Defaults to 'localhost'.
+        The address to listen on. For Local and Dynamic this is an address of this
+        computer; for Remote it is an address of the server. Defaults to 'localhost'.
     .PARAMETER BoundPort
-        The local port to bind.
+        The port to listen on: a port of this computer for Local and Dynamic, a port
+        of the server for Remote.
     .PARAMETER RemoteHost
-        The remote destination host (for Local and Remote forwarding).
+        The host connections are forwarded to. For Local it is reached from the
+        server; for Remote it is reached from this computer. Ignored for Dynamic.
+        Defaults to 'localhost'.
     .PARAMETER RemotePort
-        The remote destination port.
+        The port on RemoteHost that connections are forwarded to. Required for Local
+        and Remote; ignored for Dynamic.
     .EXAMPLE
         New-SSHPortForward -SessionId 1 -Type Local -BoundPort 8080 -RemoteHost db.internal -RemotePort 5432
+
+        Connections to localhost:8080 on this computer reach db.internal:5432 as seen
+        from the server.
     .EXAMPLE
         New-SSHPortForward -SessionId 1 -Type Dynamic -BoundPort 1080
+
+        Runs a SOCKS proxy on localhost:1080 that connects through the server.
     .EXAMPLE
         New-SSHPortForward -SessionId 1 -Type Remote -BoundPort 9090 -RemoteHost localhost -RemotePort 80
+
+        Connections to port 9090 on the server's loopback address reach port 80 on
+        this computer.
+    .OUTPUTS
+        SSHPortForward
+        Properties: ForwardId, SessionId, Type, BoundHost, BoundPort, RemoteHost,
+        RemotePort and IsStarted. For a Dynamic forward RemoteHost is empty and
+        RemotePort is 0.
     #>
     [CmdletBinding(DefaultParameterSetName = 'ById')]
     [OutputType([SSHPortForward])]

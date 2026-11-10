@@ -128,11 +128,12 @@ Describe 'SSHPortForward' {
     It 'ToString for Remote forward' {
         $fwd = [SSHPortForward]::new()
         $fwd.Type = 'Remote'
-        $fwd.BoundHost = 'localhost'
+        # BoundHost/BoundPort: where the server listens; RemoteHost/RemotePort: local destination
+        $fwd.BoundHost = '0.0.0.0'
         $fwd.BoundPort = 9090
-        $fwd.RemoteHost = '0.0.0.0'
+        $fwd.RemoteHost = 'localhost'
         $fwd.RemotePort = 80
-        $fwd.ToString() | Should -Be 'R:0.0.0.0:80 -> localhost:9090'
+        $fwd.ToString() | Should -Be 'R:0.0.0.0:9090 -> localhost:80'
     }
 
     It 'ToString for Dynamic forward' {

@@ -1,7 +1,11 @@
 function ConvertTo-SSHFingerprint {
     <#
     .SYNOPSIS
-        Converts a raw host key byte array to SHA256 and MD5 fingerprint strings.
+        Returns the SHA256 or MD5 fingerprint string of a public key blob.
+    .DESCRIPTION
+        SHA256 fingerprints are returned as "SHA256:" followed by unpadded base64,
+        MD5 fingerprints as "MD5:" followed by colon-separated hex bytes, as
+        OpenSSH prints them.
     #>
     [CmdletBinding()]
     param(

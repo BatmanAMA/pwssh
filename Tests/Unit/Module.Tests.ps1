@@ -74,3 +74,23 @@ Describe 'pwssh module' {
         }
     }
 }
+
+Describe 'pwssh error behaviour' {
+    It 'writes non-terminating errors unless the caller asks otherwise' {
+        $after = & { Get-SSHSession -SessionId 987654 -ErrorAction SilentlyContinue; 'after' }
+        $after | Should -Be 'after'
+        $result = & { Invoke-SSHCommand -SessionId 987654 -Command 'true' 2>$null; 'continued' }
+        $result | Should -Be 'continued'
+        { Invoke-SSHCommand -SessionId 987654 -Command 'true' -ErrorAction Stop } | Should -Throw '*not found*'
+    }
+
+    It 'reports an empty passphrase as an unencrypted key' {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "pwssh_mod_$([guid]::NewGuid().ToString('N'))"
+        try {
+            $key = New-SSHKeyPair -Path (Join-Path $dir 'id_empty') -Passphrase ([securestring]::new())
+            $key.Encrypted | Should -BeFalse
+            (Test-SSHKeyFile -Path $key.PrivateKeyPath).Encrypted | Should -BeFalse
+        }
+        finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}

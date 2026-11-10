@@ -1,21 +1,37 @@
 function Get-SFTPChildItem {
     <#
     .SYNOPSIS
-        Lists files and directories on a remote host via SFTP.
+        Lists files and directories on a remote host with SFTP.
     .DESCRIPTION
-        Returns a listing of remote directory contents using SFTP, similar to Get-ChildItem.
+        Returns the contents of a remote directory, similar to Get-ChildItem. The
+        entries "." and ".." are left out.
+
+        The listing does not run over the session's own connection. The first SFTP
+        command on a session opens a second connection with the session's connection
+        settings; it is kept and reused by later SFTP commands and closed with the
+        session. That connection is pinned to the host key the session accepted: if
+        the server presents any other key the listing is refused.
     .PARAMETER SessionId
-        The session ID to use.
+        The ID of the session to use.
     .PARAMETER Session
-        An SSHSessionInfo object.
+        The SSHSessionInfo object to use. Accepts pipeline input.
     .PARAMETER Path
-        The remote directory path to list. Defaults to the user's home directory.
+        The remote directory to list. Defaults to '.', the directory the SFTP server
+        starts in, which is normally the user's home directory.
     .PARAMETER Recurse
-        Recursively list subdirectories.
+        Also list the contents of subdirectories, at any depth.
     .EXAMPLE
         Get-SFTPChildItem -SessionId 1 -Path /var/log
     .EXAMPLE
-        Get-SFTPChildItem -SessionId 1 -Path /etc -Recurse
+        Get-SFTPChildItem -SessionId 1 -Path /etc -Recurse |
+            Where-Object { -not $_.IsDirectory -and $_.Name -like '*.conf' } |
+            Select-Object FullName, Length, LastWriteTime
+
+        Finds configuration files below /etc.
+    .OUTPUTS
+        Renci.SshNet.Sftp.SftpFile
+        The SSH.NET file object, with properties such as Name, FullName, Length,
+        IsDirectory, IsSymbolicLink and LastWriteTime.
     #>
     [CmdletBinding(DefaultParameterSetName = 'ById')]
     param(

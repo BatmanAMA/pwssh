@@ -5,7 +5,8 @@ function Resolve-SSHHostName {
     .DESCRIPTION
         IPv6 literals must be bracketed to carry a port ([::1]:2222); an unbracketed
         address containing more than one colon is taken as a bare IPv6 address.
-        Port is $null unless -DefaultPort is given or the string carries one.
+        Port is the port carried by the string, or -DefaultPort (22 unless given)
+        when it carries none. HasPort tells the two cases apart.
     #>
     [CmdletBinding()]
     param(

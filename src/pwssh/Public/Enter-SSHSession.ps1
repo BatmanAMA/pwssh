@@ -1,25 +1,54 @@
 function Enter-SSHSession {
     <#
     .SYNOPSIS
-        Enters an interactive SSH shell session.
+        Starts an interactive shell on an existing SSH session.
     .DESCRIPTION
-        Opens an interactive terminal stream to the remote SSH host.
-        Type 'exit' or press Ctrl+C to return to the local shell.
+        Opens a shell with a pseudo-terminal on the remote host and connects it to the
+        local console. Keys are sent to the remote side as they are typed, including
+        Ctrl+C, which goes to the remote program and does not stop the local command.
+
+        The shell ends when the remote shell exits (for example after typing 'exit'),
+        or when the connection drops. To leave a shell that no longer responds, press
+        Enter and then type a tilde followed by a full stop (the same escape sequence
+        as in ssh).
+
+        Leaving the shell does not close the SSH session. The session stays open and
+        can be used again until Remove-SSHSession is called.
+
+        The remote terminal is given the size of the local console window and is
+        resized when the window changes, unless -Columns or -Rows is given. Resizing is
+        best effort because it relies on SSH.NET internals.
+
+        The command needs an interactive console. It writes an error and returns if
+        standard input is redirected.
     .PARAMETER SessionId
-        The session ID to interact with.
+        The ID of the session to open the shell on.
     .PARAMETER Session
-        An SSHSessionInfo object to interact with.
+        The SSHSessionInfo object to open the shell on. Accepts pipeline input.
     .PARAMETER TerminalType
-        Terminal type to request. Defaults to 'xterm-256color'.
+        Terminal type to request from the server. Defaults to 'xterm-256color'.
     .PARAMETER Columns
-        Terminal width in columns. Defaults to current console width.
+        Terminal width in columns. Defaults to the width of the console window, or 80
+        if it cannot be determined. Giving a value turns off automatic resizing.
     .PARAMETER Rows
-        Terminal height in rows. Defaults to current console height.
+        Terminal height in rows. Defaults to the height of the console window, or 24
+        if it cannot be determined. Giving a value turns off automatic resizing.
     .EXAMPLE
         Enter-SSHSession -SessionId 1
     .EXAMPLE
         $s = New-SSHSession server01 -Credential $cred
         $s | Enter-SSHSession
+        Invoke-SSHCommand -Session $s -Command 'uptime'
+
+        Works in an interactive shell, then keeps using the same session after the
+        shell has been left.
+    .EXAMPLE
+        Enter-SSHSession -SessionId 1 -TerminalType vt100 -Columns 132 -Rows 43
+
+        Requests a fixed terminal size and type.
+    .OUTPUTS
+        None
+        Remote output is written directly to the console, not to the pipeline.
     #>
     [CmdletBinding(DefaultParameterSetName = 'ById')]
     param(

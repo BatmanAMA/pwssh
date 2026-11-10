@@ -50,6 +50,10 @@ Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'Public') -Filter '*.ps1' | 
     . $_.FullName
 }
 
+# 'Stop' was only for loading. Left in module scope it would shadow the caller's
+# preference and turn every Write-Error in the module into a terminating error.
+Remove-Variable -Name ErrorActionPreference -Scope Script -ErrorAction Ignore
+
 # Module state
 $script:SSHSessions     = [System.Collections.Generic.Dictionary[int, SSHSessionInfo]]::new()
 $script:SSHPortForwards = [System.Collections.Generic.Dictionary[int, SSHPortForward]]::new()

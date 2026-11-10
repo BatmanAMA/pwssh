@@ -1,7 +1,8 @@
 function Initialize-SSHSessionStore {
     <#
     .SYNOPSIS
-        Initializes the module-scoped session and port-forward stores.
+        Creates the module-scoped session and port forward stores if they do not
+        exist yet.
     #>
     [CmdletBinding()]
     param()

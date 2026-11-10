@@ -1,30 +1,59 @@
 function New-SSHKeyPair {
     <#
     .SYNOPSIS
-        Generates a new SSH key pair using pure .NET cryptography.
+        Generates a new SSH key pair in OpenSSH format.
     .DESCRIPTION
-        Creates a new SSH private/public key pair in OpenSSH format.
-        Supports Ed25519, RSA, and ECDSA key types.
-        No external tools (ssh-keygen) required.
+        Creates a private key file in the OpenSSH private key format and the matching
+        public key file (the same path with .pub appended). The keys are generated
+        with .NET cryptography; ssh-keygen is not needed. OpenSSH can read the files.
+
+        Key types:
+        - Ed25519 (default)
+        - RSA, 2048 to 16384 bits in multiples of 8, default 4096
+        - ECDSA with the NIST curves P-256 (default), P-384 and P-521
+
+        With -Passphrase the private key is encrypted with aes256-ctr, using a key
+        derived with bcrypt_pbkdf (16 rounds). Without it the private key is stored
+        unencrypted.
+
+        The private key file is created empty, restricted to the current user (mode
+        0600, or an owner-only ACL on Windows) and only then written, so the key is
+        never readable by other users. If the permissions cannot be applied the file is
+        removed and the command fails. A missing parent directory is created with
+        owner-only permissions. Supports -WhatIf and -Confirm.
     .PARAMETER Path
-        Output path for the private key. The public key will be written to Path.pub.
+        Output path for the private key. The public key is written to the same path
+        with .pub appended. Defaults to ~/.ssh/id_ed25519, id_rsa or id_ecdsa depending
+        on -KeyType. A relative path is resolved against the current PowerShell
+        location and ~ is expanded.
     .PARAMETER KeyType
-        The key algorithm: Ed25519, RSA, or ECDSA. Defaults to Ed25519.
+        The key algorithm: Ed25519, RSA or ECDSA. Defaults to Ed25519.
     .PARAMETER KeySize
-        Key size in bits (for RSA: 2048, 3072, 4096; for ECDSA: 256, 384, 521).
+        Key size in bits. For RSA: a multiple of 8 from 2048 to 16384, default 4096.
+        For ECDSA: 256, 384 or 521, default 256. Ed25519 keys have a fixed size, so
+        omit this parameter for them.
     .PARAMETER Comment
-        Comment to embed in the public key. Defaults to user@hostname.
+        Comment stored with the key. Defaults to user@hostname.
     .PARAMETER Passphrase
-        SecureString passphrase to protect the private key.
+        SecureString passphrase to encrypt the private key with.
     .PARAMETER Force
-        Overwrite existing key files.
+        Replace an existing private key file. Without it the command writes an error
+        if the file exists. The public key file is always replaced.
     .EXAMPLE
         New-SSHKeyPair -Path ~/.ssh/id_ed25519
+
+        Creates an unencrypted Ed25519 key pair.
     .EXAMPLE
         New-SSHKeyPair -Path ~/.ssh/id_rsa -KeyType RSA -KeySize 4096 -Comment 'deploy key'
     .EXAMPLE
         $pass = Read-Host -AsSecureString -Prompt 'Passphrase'
-        New-SSHKeyPair -Path ~/.ssh/id_ed25519 -Passphrase $pass
+        New-SSHKeyPair -Path ./keys/id_ecdsa -KeyType ECDSA -KeySize 384 -Passphrase $pass
+
+        Creates a passphrase-protected ECDSA P-384 key pair below the current location.
+    .OUTPUTS
+        SSHKeyPairInfo
+        A custom object with PrivateKeyPath, PublicKeyPath, KeyType, Fingerprint
+        (SHA256), Comment and Encrypted.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -160,7 +189,7 @@ function New-SSHKeyPair {
                     KeyType        = $KeyType
                     Fingerprint    = $fp
                     Comment        = $Comment
-                    Encrypted      = [bool]$Passphrase
+                    Encrypted      = [bool]($Passphrase -and $Passphrase.Length -gt 0)
                 }
             }
             catch {

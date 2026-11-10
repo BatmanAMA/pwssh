@@ -1,12 +1,14 @@
 function ConvertFrom-SecureStringPlain {
     <#
     .SYNOPSIS
-        Converts a SecureString to a plain string, clearing the reference after use.
+        Converts a SecureString to a plain string.
     .DESCRIPTION
-        Returns a plain string from a SecureString. The BSTR is zeroed immediately.
-        The caller MUST null the returned string variable when done to remove the
-        managed reference. .NET strings are immutable and cannot be pinned/zeroed;
-        this is a known limitation documented here for security-conscious users.
+        Returns the content of a SecureString as a plain string. The intermediate
+        unmanaged copy (BSTR) is zeroed and freed before the function returns.
+        The returned string itself cannot be cleared, because managed strings are
+        immutable. Callers set their variable to $null when done so that the
+        string is no longer referenced; it stays in memory until it is garbage
+        collected.
     #>
     [CmdletBinding()]
     param(

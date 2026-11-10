@@ -3,10 +3,17 @@ function Get-SSHKeyFingerprint {
     .SYNOPSIS
         Shows the fingerprint of an SSH key file.
     .DESCRIPTION
-        Reads an SSH public or private key file and displays its fingerprint.
-        Equivalent to ssh-keygen -l.
+        Reads an OpenSSH public key file or an OpenSSH private key file and returns
+        the fingerprint of the public key. Comparable to ssh-keygen -l.
+
+        A file that starts with -----BEGIN OPENSSH PRIVATE KEY----- is read as a
+        private key; anything else is read as a public key line. PEM, PKCS#8 and PuTTY
+        private keys give an error. An encrypted private key needs -Passphrase; the
+        matching .pub file does not.
     .PARAMETER Path
-        Path to a public key (.pub) or private key file.
+        Path to a public key (.pub) or private key file. A relative path is resolved
+        against the current PowerShell location and ~ is expanded. Accepts pipeline
+        input, including file objects from Get-ChildItem (alias FullName).
     .PARAMETER Algorithm
         Hash algorithm for the fingerprint: SHA256 or MD5. Defaults to SHA256.
     .PARAMETER Passphrase
@@ -15,6 +22,15 @@ function Get-SSHKeyFingerprint {
         Get-SSHKeyFingerprint -Path ~/.ssh/id_ed25519.pub
     .EXAMPLE
         Get-SSHKeyFingerprint -Path ~/.ssh/id_rsa -Algorithm MD5
+
+        Shows the fingerprint in the older colon-separated MD5 form.
+    .EXAMPLE
+        Get-ChildItem ~/.ssh/*.pub | Get-SSHKeyFingerprint
+
+        Lists the fingerprints of all public keys in ~/.ssh.
+    .OUTPUTS
+        SSHKeyFingerprintInfo
+        A custom object with KeyBits, Fingerprint, Comment, KeyType and SourceFile.
     #>
     [CmdletBinding()]
     param(
